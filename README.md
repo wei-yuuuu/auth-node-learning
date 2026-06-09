@@ -71,9 +71,9 @@ npm run test:random
 
 ## Node 24 Notes
 
-This chapter uses the native `node:crypto` Argon2 API added in Node 24. The API is currently a release candidate, which makes it useful for learning the salt, parameter, and derived-key pieces directly. A production service may still prefer a mature password-hashing package until the native API becomes stable.
+This project uses the native `node:crypto` Argon2 API added in Node 24. The API is currently a release candidate, which makes it useful for learning the salt, parameter, and derived-key pieces directly. A production service may still prefer a mature password-hashing package until the native API becomes stable.
 
-It also uses `node:sqlite`, which is currently a release candidate in Node 24. If Node prints an SQLite experimental warning, that is expected.
+The project also uses `node:sqlite`, which is currently a release candidate in Node 24. If Node prints an SQLite experimental warning, that is expected.
 
 The test suite uses `node:test` mock timers for rate-limit refill, rolling session expiration, email-code TTL, and `AbortSignal.timeout()`.
 
@@ -139,7 +139,7 @@ curl -i -X POST http://localhost:3000/password-reset/finish \
 
 ## References
 
-See [docs/pilcrow-reference.md](docs/pilcrow-reference.md) for the exact article sections this chapter follows.
+See [docs/pilcrow-reference.md](docs/pilcrow-reference.md) for the article sections mapped to the current implementation.
 
 See [docs/chapter-plan.md](docs/chapter-plan.md) for the suggested chapter order toward the full ideal implementation.
 
