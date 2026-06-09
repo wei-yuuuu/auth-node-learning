@@ -14,5 +14,8 @@ export function timingSafeEqualHex(leftHex, rightHex) {
     return false;
   }
 
+  // Token secrets should not be compared with `===`: byte-by-byte timing can
+  // reveal how much of the secret matched. `timingSafeEqual()` keeps valid and
+  // invalid same-length hashes on the same comparison path.
   return crypto.timingSafeEqual(left, right);
 }

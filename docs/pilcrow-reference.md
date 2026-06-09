@@ -42,12 +42,24 @@ Current position: Chapter 3 is complete. Chapter 1 auth foundations are implemen
   - Sign-in attempts are limited with a SQLite-backed token bucket keyed by email.
   - The server returns explicit account/password errors for this educational app.
 
+### Email Addresses
+
+- Reference: [Email addresses](https://auth.pilcrowonpaper.com/email-addresses), especially the listed validation rules for maximum length, exactly one `@`, non-empty username and domain, restricted username/domain characters, and requiring at least one period in the domain.
+- Implemented in: `src/store/email.js` and `src/server.js`.
+- Code choices:
+  - Email input is trimmed and lowercased before validation and storage.
+  - Email addresses are limited to 100 characters.
+  - The username allows lowercase letters, numbers, `.`, `+`, `_`, and `-`.
+  - The domain allows lowercase letters, numbers, `-`, and `.`.
+  - The domain must include at least one period.
+
 ### Email Address Verification Codes
 
 - Reference: [Email address verification codes](https://auth.pilcrowonpaper.com/email-address-verification-codes), especially the preference for codes over links, tying the code to one session and one email address, using an 8-digit numeric code, rate limiting per email address, keeping the code valid for less than an hour, and generating the code without modulo bias.
 - Implemented in: `src/auth/email-code-service.js` and `src/auth/random.js`.
 - Code choices:
   - Verification uses an 8-digit numeric code.
+  - Submitted codes must also be exactly 8 numeric characters.
   - Codes are bound to the auth session ID and email address.
   - Codes expire after 15 minutes.
   - Verification attempts are rate-limited per email address with SQLite-backed bucket state.

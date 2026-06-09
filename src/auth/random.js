@@ -27,3 +27,15 @@ export function generateUnbiasedEightDigitCode() {
     }
   }
 }
+
+export function validateEightDigitCode(code) {
+  if (typeof code !== "string") {
+    return "Code is required.";
+  }
+
+  if (!/^\d{8}$/.test(code)) {
+    return "Code must be an 8-digit number.";
+  }
+
+  return null;
+}

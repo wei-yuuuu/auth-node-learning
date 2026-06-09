@@ -9,7 +9,7 @@ import { RateLimiter } from "./auth/rate-limit.js";
 import { SessionService } from "./auth/session-service.js";
 import { parseCookies, serializeCookie } from "./http/cookies.js";
 import { readJson, sendJson } from "./http/json.js";
-import { normalizeEmail } from "./store/email.js";
+import { normalizeEmail, validateEmail } from "./store/email.js";
 import { SQLiteStore } from "./store/sqlite-store.js";
 
 const store = new SQLiteStore(process.env.AUTH_DB_PATH ?? "auth-node.sqlite");
@@ -105,10 +105,11 @@ const server = createServer(async (request, response) => {
 async function handleSignup(request, response) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
+  const emailError = validateEmail(email);
   const passwordError = validatePassword(body.password);
 
-  if (!email || !email.includes("@")) {
-    return sendJson(response, 400, { error: "Valid email address is required." });
+  if (emailError) {
+    return sendJson(response, 400, { error: emailError });
   }
 
   if (passwordError) {
@@ -178,6 +179,11 @@ async function handleResendEmailVerification(_request, response, authSession) {
 async function handleSignin(request, response) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
+  const emailError = validateEmail(email);
+
+  if (emailError) {
+    return sendJson(response, 400, { error: emailError });
+  }
 
   if (!(await passwordAttemptLimiter.consume(email))) {
     return sendJson(response, 429, {
@@ -188,6 +194,10 @@ async function handleSignin(request, response) {
   const user = await store.getUserByEmail(email);
 
   if (!user) {
+    // Pilcrow: preventing user enumeration entirely is difficult. Hashing even
+    // when the account does not exist complicates rate limiting and still does
+    // not fully eliminate timing inference; explicit errors are better UX here.
+    // Reference: https://auth.pilcrowonpaper.com/passwords
     return sendJson(response, 400, { error: "No account exists for this email address." });
   }
 
@@ -261,6 +271,12 @@ async function handlePasswordUpdate(request, response, authSession) {
 async function handlePasswordResetStart(request, response) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
+  const emailError = validateEmail(email);
+
+  if (emailError) {
+    return sendJson(response, 400, { error: emailError });
+  }
+
   const result = await passwordResets.createPasswordResetCode(email);
 
   if (!result.ok) {
@@ -276,7 +292,12 @@ async function handlePasswordResetStart(request, response) {
 async function handlePasswordResetFinish(request, response) {
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
+  const emailError = validateEmail(email);
   const passwordError = validatePassword(body.password);
+
+  if (emailError) {
+    return sendJson(response, 400, { error: emailError });
+  }
 
   if (passwordError) {
     return sendJson(response, 400, { error: passwordError });

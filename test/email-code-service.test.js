@@ -47,6 +47,25 @@ test("EmailCodeService expires codes with node:test mock timers", async (t) => {
   });
 });
 
+test("EmailCodeService rejects malformed verification codes", async () => {
+  const store = new SQLiteStore(":memory:");
+  const emailCodes = new EmailCodeService(store, {
+    async sendEmailVerificationCode() {}
+  });
+
+  assert.deepEqual(
+    await emailCodes.verifyEmailCode({
+      sessionId: "session-1",
+      email: "demo@example.com",
+      code: "1234"
+    }),
+    {
+      ok: false,
+      error: "Code must be an 8-digit number."
+    }
+  );
+});
+
 test("AbortSignal.timeout follows mocked timers on Node versions that support it", async (t) => {
   t.mock.timers.enable({ now: 0 });
 

@@ -1,4 +1,4 @@
-import { generateUnbiasedEightDigitCode } from "./random.js";
+import { generateUnbiasedEightDigitCode, validateEightDigitCode } from "./random.js";
 import { RateLimiter } from "./rate-limit.js";
 
 const PASSWORD_RESET_CODE_TTL_MS = 1000 * 60 * 15;
@@ -48,6 +48,12 @@ export class PasswordResetService {
   }
 
   async verifyPasswordResetCode({ email, code }) {
+    const codeError = validateEightDigitCode(code);
+
+    if (codeError) {
+      return { ok: false, error: codeError };
+    }
+
     if (!(await this.verifyLimiter.consume(email))) {
       return { ok: false, error: "Too many password reset attempts. Try again later." };
     }

@@ -1,4 +1,4 @@
-import { generateUnbiasedEightDigitCode } from "./random.js";
+import { generateUnbiasedEightDigitCode, validateEightDigitCode } from "./random.js";
 import { RateLimiter } from "./rate-limit.js";
 
 const EMAIL_CODE_TTL_MS = 1000 * 60 * 15;
@@ -31,6 +31,12 @@ export class EmailCodeService {
   }
 
   async verifyEmailCode({ sessionId, email, code }) {
+    const codeError = validateEightDigitCode(code);
+
+    if (codeError) {
+      return { ok: false, error: codeError };
+    }
+
     if (!(await this.verifyLimiter.consume(email))) {
       return { ok: false, error: "Too many attempts. Try again later." };
     }

@@ -7,6 +7,7 @@ Current status: Chapter 3 is complete. Chapter 4 is the next planned chapter.
 ## Implemented So Far
 
 - Password sign-up and sign-in with Argon2id.
+- Email address validation based on the article's simple allowed-character rules.
 - Native Node.js `node:crypto` Argon2id hashing for learning-friendly salt and parameter handling.
 - SQLite-backed users, sessions, and email verification codes with `node:sqlite`.
 - SQLite-backed rate-limit bucket state.

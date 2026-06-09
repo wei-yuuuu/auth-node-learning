@@ -60,3 +60,21 @@ test("PasswordResetService expires reset codes", async (t) => {
     }
   );
 });
+
+test("PasswordResetService rejects malformed reset codes", async () => {
+  const store = new SQLiteStore(":memory:");
+  const passwordResets = new PasswordResetService(store, {
+    async sendPasswordResetCode() {}
+  });
+
+  assert.deepEqual(
+    await passwordResets.verifyPasswordResetCode({
+      email: "demo@example.com",
+      code: "1234"
+    }),
+    {
+      ok: false,
+      error: "Code must be an 8-digit number."
+    }
+  );
+});

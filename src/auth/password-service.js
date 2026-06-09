@@ -84,6 +84,8 @@ export async function verifyPassword(hash, password) {
     return false;
   }
 
+  // Password hash verification compares derived bytes. Constant-time equality
+  // avoids leaking partial-match information through response timing.
   return timingSafeEqual(derivedKey, parsedHash.derivedKey);
 }
 
