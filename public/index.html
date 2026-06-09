@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Auth Node Learning</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p>Chapter 2 complete</p>
+        <h1>Auth Node Learning</h1>
+      </header>
+
+      <section>
+        <form id="signup-form">
+          <h2>Sign up</h2>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" required>
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="100" required>
+          </label>
+          <button type="submit">Create account</button>
+        </form>
+
+        <form id="signin-form">
+          <h2>Sign in</h2>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" required>
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button type="submit">Sign in</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Session</h2>
+        <pre id="output">Loading...</pre>
+
+        <form id="verify-form">
+          <label>
+            Email verification code
+            <input name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="12345678">
+          </label>
+          <button type="submit">Verify email</button>
+        </form>
+
+        <div class="actions">
+          <button id="refresh-button" type="button">Refresh</button>
+          <button id="resend-button" type="button">Resend code</button>
+          <button id="signout-button" type="button">Sign out</button>
+          <button id="signout-all-button" type="button">Sign out all</button>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

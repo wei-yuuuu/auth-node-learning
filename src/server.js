@@ -1,0 +1,276 @@
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
+import { EmailCodeService } from "./auth/email-code-service.js";
+import { hashPassword, validatePassword, verifyPassword } from "./auth/password-service.js";
+import { RateLimiter } from "./auth/rate-limit.js";
+import { SessionService } from "./auth/session-service.js";
+import { parseCookies, serializeCookie } from "./http/cookies.js";
+import { readJson, sendJson } from "./http/json.js";
+import { normalizeEmail } from "./store/email.js";
+import { SQLiteStore } from "./store/sqlite-store.js";
+
+const store = new SQLiteStore(process.env.AUTH_DB_PATH ?? "auth-node.sqlite");
+const sessions = new SessionService(store);
+const emailCodes = new EmailCodeService(store, {
+  async sendEmailVerificationCode(email, code) {
+    console.log(`[dev-email] Email verification code for ${email}: ${code}`);
+  }
+});
+const passwordAttemptLimiter = new RateLimiter({
+  name: "password-signin",
+  capacity: 5,
+  refillTokens: 1,
+  refillIntervalMs: 1000 * 60
+}, store);
+
+const AUTH_COOKIE = "auth_session";
+const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
+
+const server = createServer(async (request, response) => {
+  try {
+    const url = new URL(request.url, "http://localhost");
+
+    if (request.method === "GET" && url.pathname === "/") {
+      return serveStaticFile(response, "index.html");
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/assets/")) {
+      return serveStaticFile(response, url.pathname.slice(1));
+    }
+
+    if (request.method === "GET" && url.pathname === "/health") {
+      return sendJson(response, 200, { ok: true });
+    }
+
+    if (request.method === "POST" && url.pathname === "/signup") {
+      return handleSignup(request, response);
+    }
+
+    if (request.method === "POST" && url.pathname === "/verify-email") {
+      return withAuth(request, response, handleVerifyEmail);
+    }
+
+    if (request.method === "POST" && url.pathname === "/verify-email/resend") {
+      return withAuth(request, response, handleResendEmailVerification);
+    }
+
+    if (request.method === "POST" && url.pathname === "/signin") {
+      return handleSignin(request, response);
+    }
+
+    if (request.method === "GET" && url.pathname === "/me") {
+      return withAuth(request, response, handleMe);
+    }
+
+    if (request.method === "POST" && url.pathname === "/signout") {
+      return withAuth(request, response, handleSignout);
+    }
+
+    if (request.method === "POST" && url.pathname === "/sessions/signout-all") {
+      return withAuth(request, response, handleSignoutAll);
+    }
+
+    return sendJson(response, 404, { error: "Not found." });
+  } catch (error) {
+    console.error(error);
+    return sendJson(response, 500, { error: "Internal server error." });
+  }
+});
+
+async function handleSignup(request, response) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const passwordError = validatePassword(body.password);
+
+  if (!email || !email.includes("@")) {
+    return sendJson(response, 400, { error: "Valid email address is required." });
+  }
+
+  if (passwordError) {
+    return sendJson(response, 400, { error: passwordError });
+  }
+
+  const passwordHash = await hashPassword(body.password);
+  const user = await store.createUser({ email, passwordHash });
+  const token = await sessions.createAuthSession(user.id);
+  const authSession = await sessions.validateAuthToken(token);
+
+  await emailCodes.createEmailVerificationCode({
+    sessionId: authSession.id,
+    email: user.email
+  });
+
+  return sendJson(
+    response,
+    201,
+    {
+      user: publicUser(user),
+      message: "Account created. Check stdout for the development verification email."
+    },
+    setAuthCookie(token)
+  );
+}
+
+async function handleVerifyEmail(request, response, authSession) {
+  const body = await readJson(request);
+  const user = await store.getUserById(authSession.userId);
+
+  const result = await emailCodes.verifyEmailCode({
+    sessionId: authSession.id,
+    email: user.email,
+    code: body.code
+  });
+
+  if (!result.ok) {
+    return sendJson(response, 400, { error: result.error });
+  }
+
+  await store.markEmailVerified(user.id);
+  return sendJson(response, 200, { user: publicUser(await store.getUserById(user.id)) });
+}
+
+async function handleResendEmailVerification(_request, response, authSession) {
+  const user = await store.getUserById(authSession.userId);
+
+  if (user.emailVerified) {
+    return sendJson(response, 200, {
+      user: publicUser(user),
+      message: "Email address is already verified."
+    });
+  }
+
+  await emailCodes.createEmailVerificationCode({
+    sessionId: authSession.id,
+    email: user.email
+  });
+
+  return sendJson(response, 200, {
+    user: publicUser(user),
+    message: "A new verification code was printed to stdout."
+  });
+}
+
+async function handleSignin(request, response) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+
+  if (!(await passwordAttemptLimiter.consume(email))) {
+    return sendJson(response, 429, {
+      error: "Too many sign-in attempts. Try again later."
+    });
+  }
+
+  const user = await store.getUserByEmail(email);
+
+  if (!user) {
+    return sendJson(response, 400, { error: "No account exists for this email address." });
+  }
+
+  const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
+
+  if (!validPassword) {
+    return sendJson(response, 400, { error: "Password is incorrect." });
+  }
+
+  const token = await sessions.createAuthSession(user.id);
+  return sendJson(response, 200, { user: publicUser(user) }, setAuthCookie(token));
+}
+
+async function handleMe(_request, response, authSession) {
+  const user = await store.getUserById(authSession.userId);
+  return sendJson(response, 200, { user: publicUser(user) });
+}
+
+async function handleSignout(_request, response, authSession) {
+  await sessions.invalidateSession(authSession.id);
+  return sendJson(response, 200, { ok: true }, clearAuthCookie());
+}
+
+async function handleSignoutAll(_request, response, authSession) {
+  await sessions.invalidateAllAuthSessions(authSession.userId);
+  return sendJson(response, 200, { ok: true }, clearAuthCookie());
+}
+
+async function withAuth(request, response, handler) {
+  const cookies = parseCookies(request.headers.cookie);
+  const token = cookies.get(AUTH_COOKIE);
+  const authSession = await sessions.validateAuthToken(token);
+
+  if (!authSession) {
+    return sendJson(response, 401, { error: "Authentication required." }, clearAuthCookie());
+  }
+
+  return handler(request, response, authSession);
+}
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    emailVerified: user.emailVerified
+  };
+}
+
+function setAuthCookie(token) {
+  return {
+    "set-cookie": serializeCookie(AUTH_COOKIE, token, {
+      maxAge: 60 * 60 * 24 * 30,
+      secure: process.env.NODE_ENV === "production"
+    })
+  };
+}
+
+function clearAuthCookie() {
+  return {
+    "set-cookie": serializeCookie(AUTH_COOKIE, "", { maxAge: 0 })
+  };
+}
+
+async function serveStaticFile(response, relativePath) {
+  const safeRelativePath = normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = join(publicDirectory, safeRelativePath);
+
+  try {
+    const body = await readFile(filePath);
+
+    response.writeHead(200, {
+      "content-type": contentTypeFor(filePath)
+    });
+    response.end(body);
+  } catch {
+    sendJson(response, 404, { error: "Not found." });
+  }
+}
+
+function contentTypeFor(filePath) {
+  const extension = extname(filePath);
+
+  if (extension === ".css") {
+    return "text/css; charset=utf-8";
+  }
+
+  if (extension === ".js") {
+    return "text/javascript; charset=utf-8";
+  }
+
+  return "text/html; charset=utf-8";
+}
+
+const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+const cleanupIntervalMs = Number.parseInt(process.env.AUTH_CLEANUP_INTERVAL_MS ?? "300000", 10);
+
+await store.deleteExpiredRecords();
+
+setInterval(async () => {
+  try {
+    await store.deleteExpiredRecords();
+  } catch (error) {
+    console.error("Failed to delete expired auth records.", error);
+  }
+}, cleanupIntervalMs).unref();
+
+server.listen(port, () => {
+  console.log(`Auth learning server listening on http://localhost:${port}`);
+});

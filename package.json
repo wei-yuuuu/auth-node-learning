@@ -1,0 +1,15 @@
+{
+  "name": "auth-node-learning",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Educational Node.js implementation of Pilcrow-style auth primitives.",
+  "engines": {
+    "node": ">=24.16.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "test:random": "node --test --test-randomize --test-random-seed=424242"
+  }
+}
