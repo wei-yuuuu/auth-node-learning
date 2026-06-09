@@ -4,6 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EmailCodeService } from "./auth/email-code-service.js";
 import { hashPassword, validatePassword, verifyPassword } from "./auth/password-service.js";
+import { PasswordResetService } from "./auth/password-reset-service.js";
 import { RateLimiter } from "./auth/rate-limit.js";
 import { SessionService } from "./auth/session-service.js";
 import { parseCookies, serializeCookie } from "./http/cookies.js";
@@ -13,11 +14,16 @@ import { SQLiteStore } from "./store/sqlite-store.js";
 
 const store = new SQLiteStore(process.env.AUTH_DB_PATH ?? "auth-node.sqlite");
 const sessions = new SessionService(store);
-const emailCodes = new EmailCodeService(store, {
+const devEmailSender = {
   async sendEmailVerificationCode(email, code) {
     console.log(`[dev-email] Email verification code for ${email}: ${code}`);
+  },
+  async sendPasswordResetCode(email, code) {
+    console.log(`[dev-email] Password reset code for ${email}: ${code}`);
   }
-});
+};
+const emailCodes = new EmailCodeService(store, devEmailSender);
+const passwordResets = new PasswordResetService(store, devEmailSender);
 const passwordAttemptLimiter = new RateLimiter({
   name: "password-signin",
   capacity: 5,
@@ -26,6 +32,7 @@ const passwordAttemptLimiter = new RateLimiter({
 }, store);
 
 const AUTH_COOKIE = "auth_session";
+const PASSWORD_UPDATE_COOKIE = "password_update_session";
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
 
 const server = createServer(async (request, response) => {
@@ -58,6 +65,22 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/signin") {
       return handleSignin(request, response);
+    }
+
+    if (request.method === "POST" && url.pathname === "/password/verify") {
+      return withAuth(request, response, handlePasswordIdentityVerification);
+    }
+
+    if (request.method === "POST" && url.pathname === "/password/update") {
+      return withAuth(request, response, handlePasswordUpdate);
+    }
+
+    if (request.method === "POST" && url.pathname === "/password-reset/start") {
+      return handlePasswordResetStart(request, response);
+    }
+
+    if (request.method === "POST" && url.pathname === "/password-reset/finish") {
+      return handlePasswordResetFinish(request, response);
     }
 
     if (request.method === "GET" && url.pathname === "/me") {
@@ -178,6 +201,111 @@ async function handleSignin(request, response) {
   return sendJson(response, 200, { user: publicUser(user) }, setAuthCookie(token));
 }
 
+async function handlePasswordIdentityVerification(request, response, authSession) {
+  const body = await readJson(request);
+  const user = await store.getUserById(authSession.userId);
+  const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
+
+  if (!validPassword) {
+    return sendJson(response, 400, { error: "Password is incorrect." });
+  }
+
+  const verificationToken = await sessions.createVerificationSession({
+    userId: user.id,
+    action: "password-update",
+    authSessionId: authSession.id
+  });
+
+  return sendJson(
+    response,
+    200,
+    { ok: true, message: "Identity verified for password update." },
+    setPasswordUpdateCookie(verificationToken)
+  );
+}
+
+async function handlePasswordUpdate(request, response, authSession) {
+  const body = await readJson(request);
+  const cookies = parseCookies(request.headers.cookie);
+  const verificationToken = cookies.get(PASSWORD_UPDATE_COOKIE);
+  const verified = await sessions.consumeVerificationToken(verificationToken, {
+    action: "password-update",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+
+  if (!verified) {
+    return sendJson(response, 401, { error: "Password update verification required." });
+  }
+
+  const passwordError = validatePassword(body.password);
+
+  if (passwordError) {
+    return sendJson(response, 400, { error: passwordError }, clearPasswordUpdateCookie());
+  }
+
+  await store.updateUserPassword(authSession.userId, await hashPassword(body.password));
+
+  if (body.signOutOtherDevices === true) {
+    await sessions.invalidateOtherAuthSessions(authSession.userId, authSession.id);
+  }
+
+  return sendJson(
+    response,
+    200,
+    { ok: true },
+    clearPasswordUpdateCookie()
+  );
+}
+
+async function handlePasswordResetStart(request, response) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const result = await passwordResets.createPasswordResetCode(email);
+
+  if (!result.ok) {
+    return sendJson(response, 429, { error: result.error });
+  }
+
+  return sendJson(response, 200, {
+    ok: true,
+    message: "If an account exists for this email, a reset code was sent."
+  });
+}
+
+async function handlePasswordResetFinish(request, response) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const passwordError = validatePassword(body.password);
+
+  if (passwordError) {
+    return sendJson(response, 400, { error: passwordError });
+  }
+
+  const result = await passwordResets.verifyPasswordResetCode({
+    email,
+    code: body.code
+  });
+
+  if (!result.ok) {
+    return sendJson(response, 400, { error: result.error });
+  }
+
+  const user = await store.getUserByEmail(email);
+
+  if (!user) {
+    return sendJson(response, 400, { error: "Password reset code expired." });
+  }
+
+  await store.updateUserPassword(user.id, await hashPassword(body.password));
+
+  if (body.signOutAllDevices === true) {
+    await sessions.invalidateAllAuthSessions(user.id);
+  }
+
+  return sendJson(response, 200, { ok: true });
+}
+
 async function handleMe(_request, response, authSession) {
   const user = await store.getUserById(authSession.userId);
   return sendJson(response, 200, { user: publicUser(user) });
@@ -225,6 +353,21 @@ function setAuthCookie(token) {
 function clearAuthCookie() {
   return {
     "set-cookie": serializeCookie(AUTH_COOKIE, "", { maxAge: 0 })
+  };
+}
+
+function setPasswordUpdateCookie(token) {
+  return {
+    "set-cookie": serializeCookie(PASSWORD_UPDATE_COOKIE, token, {
+      maxAge: 60 * 10,
+      secure: process.env.NODE_ENV === "production"
+    })
+  };
+}
+
+function clearPasswordUpdateCookie() {
+  return {
+    "set-cookie": serializeCookie(PASSWORD_UPDATE_COOKIE, "", { maxAge: 0 })
   };
 }
 

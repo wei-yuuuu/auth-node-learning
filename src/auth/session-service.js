@@ -3,7 +3,7 @@ import { randomSessionId, randomSessionSecret } from "./random.js";
 
 const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const AUTH_SESSION_REFRESH_INTERVAL_MS = 1000 * 60 * 60;
-const ACTION_SESSION_TTL_MS = 1000 * 60 * 10;
+const VERIFICATION_SESSION_TTL_MS = 1000 * 60 * 10;
 
 export class SessionService {
   constructor(store, { now = () => Date.now() } = {}) {
@@ -23,13 +23,13 @@ export class SessionService {
     return session.token;
   }
 
-  async createActionSession({ userId, action, authSessionId }) {
+  async createVerificationSession({ userId, action, authSessionId }) {
     const session = this.#buildSession({
-      kind: "action",
+      kind: "verification",
       userId,
       action,
       authSessionId,
-      expiresInMs: ACTION_SESSION_TTL_MS
+      expiresInMs: VERIFICATION_SESSION_TTL_MS
     });
 
     await this.store.insertSession(session.record);
@@ -54,8 +54,8 @@ export class SessionService {
     return session;
   }
 
-  async consumeActionToken(token, { action, userId, authSessionId }) {
-    const validation = await this.#validateToken(token, "action");
+  async consumeVerificationToken(token, { action, userId, authSessionId }) {
+    const validation = await this.#validateToken(token, "verification");
 
     if (!validation) {
       return false;
@@ -77,6 +77,10 @@ export class SessionService {
 
   async invalidateAllAuthSessions(userId) {
     await this.store.deleteAuthSessionsByUserId(userId);
+  }
+
+  async invalidateOtherAuthSessions(userId, sessionId) {
+    await this.store.deleteOtherAuthSessionsByUserId(userId, sessionId);
   }
 
   async #validateToken(token, expectedKind) {

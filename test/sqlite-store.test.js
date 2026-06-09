@@ -16,6 +16,9 @@ test("SQLiteStore persists users, sessions, and email verification codes", async
   await store.markEmailVerified(user.id);
   assert.equal((await store.getUserById(user.id)).emailVerified, true);
 
+  await store.updateUserPassword(user.id, "new-hash");
+  assert.equal((await store.getUserById(user.id)).passwordHash, "new-hash");
+
   await store.insertSession({
     id: "session-1",
     kind: "auth",
@@ -38,6 +41,13 @@ test("SQLiteStore persists users, sessions, and email verification codes", async
     (await store.getEmailVerificationCode("session-1", "demo@example.com")).code,
     "12345678"
   );
+
+  await store.insertPasswordResetCode({
+    email: user.email,
+    code: "87654321",
+    expiresAt: 4
+  });
+  assert.equal((await store.getPasswordResetCode("demo@example.com")).code, "87654321");
 });
 
 test("SQLiteStore deletes expired sessions, email codes, and rate-limit buckets", async () => {
@@ -59,6 +69,11 @@ test("SQLiteStore deletes expired sessions, email codes, and rate-limit buckets"
     code: "12345678",
     expiresAt: 10
   });
+  await store.insertPasswordResetCode({
+    email: "demo@example.com",
+    code: "87654321",
+    expiresAt: 10
+  });
   await store.setRateLimitBucket("signin", "demo@example.com", {
     tokens: 0,
     updatedAt: 1,
@@ -70,9 +85,41 @@ test("SQLiteStore deletes expired sessions, email codes, and rate-limit buckets"
   assert.deepEqual(counts, {
     sessions: 1,
     emailVerificationCodes: 1,
+    passwordResetCodes: 1,
     rateLimitBuckets: 1
   });
   assert.equal(await store.getSession("expired-session"), null);
   assert.equal(await store.getEmailVerificationCode("expired-session", "demo@example.com"), null);
+  assert.equal(await store.getPasswordResetCode("demo@example.com"), null);
   assert.equal(await store.getRateLimitBucket("signin", "demo@example.com"), null);
+});
+
+test("SQLiteStore can delete other auth sessions while keeping the current one", async () => {
+  const store = new SQLiteStore(":memory:");
+
+  await store.insertSession({
+    id: "current-session",
+    kind: "auth",
+    userId: "user-1",
+    action: null,
+    authSessionId: null,
+    secretHashHex: "abc",
+    createdAt: 1,
+    expiresAt: 100
+  });
+  await store.insertSession({
+    id: "other-session",
+    kind: "auth",
+    userId: "user-1",
+    action: null,
+    authSessionId: null,
+    secretHashHex: "abc",
+    createdAt: 1,
+    expiresAt: 100
+  });
+
+  await store.deleteOtherAuthSessionsByUserId("user-1", "current-session");
+
+  assert.notEqual(await store.getSession("current-session"), null);
+  assert.equal(await store.getSession("other-session"), null);
 });

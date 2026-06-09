@@ -10,7 +10,7 @@
   <body>
     <main>
       <header>
-        <p>Chapter 2 complete</p>
+        <p>Chapter 3 complete</p>
         <h1>Auth Node Learning</h1>
       </header>
 
@@ -25,7 +25,7 @@
             Password
             <input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="100" required>
           </label>
-          <button type="submit">Create account</button>
+          <button class="primary" type="submit">Create account</button>
         </form>
 
         <form id="signin-form">
@@ -38,7 +38,7 @@
             Password
             <input name="password" type="password" autocomplete="current-password" required>
           </label>
-          <button type="submit">Sign in</button>
+          <button class="primary" type="submit">Sign in</button>
         </form>
       </section>
 
@@ -51,15 +51,66 @@
             Email verification code
             <input name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="12345678">
           </label>
-          <button type="submit">Verify email</button>
+          <button class="secondary" type="submit">Verify email</button>
         </form>
 
         <div class="actions">
-          <button id="refresh-button" type="button">Refresh</button>
-          <button id="resend-button" type="button">Resend code</button>
-          <button id="signout-button" type="button">Sign out</button>
-          <button id="signout-all-button" type="button">Sign out all</button>
+          <button class="secondary" id="refresh-button" type="button">Refresh</button>
+          <button class="secondary" id="resend-button" type="button">Resend code</button>
+          <button class="neutral" id="signout-button" type="button">Sign out</button>
+          <button class="danger" id="signout-all-button" type="button">Sign out all</button>
         </div>
+      </section>
+
+      <section>
+        <form id="password-change-form">
+          <h2>Change password</h2>
+          <label>
+            Current password
+            <input name="currentPassword" type="password" autocomplete="current-password" required>
+          </label>
+          <label>
+            New password
+            <input name="newPassword" type="password" autocomplete="new-password" minlength="10" maxlength="100" required>
+          </label>
+          <label class="checkbox">
+            <input name="signOutOtherDevices" type="checkbox">
+            Sign out other devices
+          </label>
+          <button class="primary" type="submit">Change password</button>
+        </form>
+      </section>
+
+      <section>
+        <form id="password-reset-start-form">
+          <h2>Start password reset</h2>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" required>
+          </label>
+          <button class="secondary" type="submit">Send reset code</button>
+        </form>
+
+        <form id="password-reset-finish-form">
+          <h2>Finish password reset</h2>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" required>
+          </label>
+          <label>
+            Reset code
+            <input name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="12345678">
+          </label>
+          <label>
+            New password
+            <input name="password" type="password" autocomplete="new-password" minlength="10" maxlength="100" required>
+          </label>
+          <label class="checkbox">
+            <input name="signOutAllDevices" type="checkbox">
+            Sign out all devices
+          </label>
+          <button class="danger" type="submit">Reset password</button>
+        </form>
       </section>
     </main>
   </body>

@@ -2,7 +2,7 @@
 
 This repository is a chapter-by-chapter Node.js learning implementation inspired by Pilcrow's auth book and example repositories.
 
-Current status: Chapter 2 is complete. Chapter 3 is the next planned chapter.
+Current status: Chapter 3 is complete. Chapter 4 is the next planned chapter.
 
 ## Implemented So Far
 
@@ -18,7 +18,11 @@ Current status: Chapter 2 is complete. Chapter 3 is the next planned chapter.
 - Email address verification via an 8-digit numeric code.
 - Token bucket rate limits for password and email-code attempts.
 - Current-device and all-device sign-out.
-- Action-specific identity verification sessions as a reusable primitive.
+- Verification sessions as a reusable primitive for sensitive actions.
+- Password update after short-lived identity verification.
+- Password reset with an email code.
+- Optional sign-out of other devices after password update.
+- Optional sign-out of all devices after password reset.
 - Built-in `node:test` coverage for password hashing, sessions, rate limits, email-code TTL, SQLite persistence, and random-code formatting.
 
 The API uses a local SQLite database by default while keeping the auth services small enough to inspect.
@@ -96,11 +100,49 @@ curl -i http://localhost:3000/me \
   -H 'cookie: auth_session=PASTE_COOKIE_VALUE'
 ```
 
+Verify identity before updating the password:
+
+The browser UI presents this as one "Change password" form. Internally, it first verifies the current password and then consumes the short-lived verification session to update the password.
+
+```sh
+curl -i -X POST http://localhost:3000/password/verify \
+  -H 'content-type: application/json' \
+  -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
+  -d '{"password":"correct horse battery staple"}'
+```
+
+Update the password with the returned `password_update_session` cookie:
+
+```sh
+curl -i -X POST http://localhost:3000/password/update \
+  -H 'content-type: application/json' \
+  -H 'cookie: auth_session=PASTE_COOKIE_VALUE; password_update_session=PASTE_COOKIE_VALUE' \
+  -d '{"password":"new correct horse battery staple","signOutOtherDevices":true}'
+```
+
+Start a password reset:
+
+```sh
+curl -i -X POST http://localhost:3000/password-reset/start \
+  -H 'content-type: application/json' \
+  -d '{"email":"demo@example.com"}'
+```
+
+Finish a password reset with the code printed to stdout:
+
+```sh
+curl -i -X POST http://localhost:3000/password-reset/finish \
+  -H 'content-type: application/json' \
+  -d '{"email":"demo@example.com","code":"12345678","password":"new correct horse battery staple","signOutAllDevices":true}'
+```
+
 ## References
 
 See [docs/pilcrow-reference.md](docs/pilcrow-reference.md) for the exact article sections this chapter follows.
 
 See [docs/chapter-plan.md](docs/chapter-plan.md) for the suggested chapter order toward the full ideal implementation.
+
+See [docs/sqlite-cheatsheet.md](docs/sqlite-cheatsheet.md) for copy-paste SQLite queries for each table.
 
 ## Planned Passwordless Support
 

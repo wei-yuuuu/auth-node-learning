@@ -52,6 +52,13 @@ export class SQLiteStore {
     this.markEmailVerifiedStatement.run(userId);
   }
 
+  async updateUserPassword(userId, passwordHash) {
+    this.updateUserPasswordStatement.run({
+      id: userId,
+      password_hash: passwordHash
+    });
+  }
+
   async insertSession(session) {
     this.insertSessionStatement.run(session);
   }
@@ -73,6 +80,13 @@ export class SQLiteStore {
 
   async deleteAuthSessionsByUserId(userId) {
     this.deleteAuthSessionsByUserIdStatement.run(userId);
+  }
+
+  async deleteOtherAuthSessionsByUserId(userId, sessionId) {
+    this.deleteOtherAuthSessionsByUserIdStatement.run({
+      user_id: userId,
+      session_id: sessionId
+    });
   }
 
   async insertEmailVerificationCode(record) {
@@ -100,6 +114,24 @@ export class SQLiteStore {
     });
   }
 
+  async insertPasswordResetCode(record) {
+    this.insertPasswordResetCodeStatement.run({
+      email: normalizeEmail(record.email),
+      code: record.code,
+      expires_at: record.expiresAt
+    });
+  }
+
+  async getPasswordResetCode(email) {
+    return rowToPasswordResetCode(
+      this.getPasswordResetCodeStatement.get(normalizeEmail(email))
+    );
+  }
+
+  async deletePasswordResetCode(email) {
+    this.deletePasswordResetCodeStatement.run(normalizeEmail(email));
+  }
+
   async getRateLimitBucket(name, key) {
     return rowToRateLimitBucket(
       this.getRateLimitBucketStatement.get({
@@ -122,11 +154,13 @@ export class SQLiteStore {
   async deleteExpiredRecords(now = Date.now()) {
     const sessions = this.deleteExpiredSessionsStatement.run(now).changes;
     const emailVerificationCodes = this.deleteExpiredEmailVerificationCodesStatement.run(now).changes;
+    const passwordResetCodes = this.deleteExpiredPasswordResetCodesStatement.run(now).changes;
     const rateLimitBuckets = this.deleteExpiredRateLimitBucketsStatement.run(now).changes;
 
     return {
       sessions,
       emailVerificationCodes,
+      passwordResetCodes,
       rateLimitBuckets
     };
   }
@@ -163,6 +197,12 @@ export class SQLiteStore {
         PRIMARY KEY (session_id, email)
       );
 
+      CREATE TABLE IF NOT EXISTS password_reset_codes (
+        email TEXT PRIMARY KEY,
+        code TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS rate_limit_buckets (
         name TEXT NOT NULL,
         key TEXT NOT NULL,
@@ -186,6 +226,9 @@ export class SQLiteStore {
     this.getUserByIdStatement = this.database.prepare("SELECT * FROM users WHERE id = ?");
     this.markEmailVerifiedStatement = this.database.prepare(
       "UPDATE users SET email_verified = 1 WHERE id = ?"
+    );
+    this.updateUserPasswordStatement = this.database.prepare(
+      "UPDATE users SET password_hash = :password_hash WHERE id = :id"
     );
     this.insertSessionStatement = this.database.prepare(`
       INSERT INTO sessions (
@@ -217,6 +260,10 @@ export class SQLiteStore {
     this.deleteAuthSessionsByUserIdStatement = this.database.prepare(
       "DELETE FROM sessions WHERE user_id = ? AND kind = 'auth'"
     );
+    this.deleteOtherAuthSessionsByUserIdStatement = this.database.prepare(`
+      DELETE FROM sessions
+      WHERE user_id = :user_id AND kind = 'auth' AND id != :session_id
+    `);
     this.insertEmailVerificationCodeStatement = this.database.prepare(`
       INSERT OR REPLACE INTO email_verification_codes (session_id, email, code, expires_at)
       VALUES (:session_id, :email, :code, :expires_at)
@@ -229,6 +276,16 @@ export class SQLiteStore {
       DELETE FROM email_verification_codes
       WHERE session_id = :session_id AND email = :email
     `);
+    this.insertPasswordResetCodeStatement = this.database.prepare(`
+      INSERT OR REPLACE INTO password_reset_codes (email, code, expires_at)
+      VALUES (:email, :code, :expires_at)
+    `);
+    this.getPasswordResetCodeStatement = this.database.prepare(
+      "SELECT * FROM password_reset_codes WHERE email = ?"
+    );
+    this.deletePasswordResetCodeStatement = this.database.prepare(
+      "DELETE FROM password_reset_codes WHERE email = ?"
+    );
     this.getRateLimitBucketStatement = this.database.prepare(`
       SELECT * FROM rate_limit_buckets
       WHERE name = :name AND key = :key
@@ -246,6 +303,9 @@ export class SQLiteStore {
     );
     this.deleteExpiredEmailVerificationCodesStatement = this.database.prepare(
       "DELETE FROM email_verification_codes WHERE expires_at <= ?"
+    );
+    this.deleteExpiredPasswordResetCodesStatement = this.database.prepare(
+      "DELETE FROM password_reset_codes WHERE expires_at <= ?"
     );
     this.deleteExpiredRateLimitBucketsStatement = this.database.prepare(
       "DELETE FROM rate_limit_buckets WHERE expires_at <= ?"
@@ -291,6 +351,18 @@ function rowToEmailVerificationCode(row) {
 
   return {
     sessionId: row.session_id,
+    email: row.email,
+    code: row.code,
+    expiresAt: row.expires_at
+  };
+}
+
+function rowToPasswordResetCode(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
     email: row.email,
     code: row.code,
     expiresAt: row.expires_at

@@ -2,6 +2,9 @@ const output = document.querySelector("#output");
 const signupForm = document.querySelector("#signup-form");
 const signinForm = document.querySelector("#signin-form");
 const verifyForm = document.querySelector("#verify-form");
+const passwordChangeForm = document.querySelector("#password-change-form");
+const passwordResetStartForm = document.querySelector("#password-reset-start-form");
+const passwordResetFinishForm = document.querySelector("#password-reset-finish-form");
 
 signupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -22,6 +25,32 @@ verifyForm.addEventListener("submit", async (event) => {
   await postJson("/verify-email", formJson(verifyForm));
   verifyForm.reset();
   await refreshSession();
+});
+
+passwordChangeForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = formJson(passwordChangeForm);
+
+  await postJson("/password/verify", {
+    password: data.currentPassword
+  });
+  await postJson("/password/update", {
+    password: data.newPassword,
+    signOutOtherDevices: data.signOutOtherDevices
+  });
+  passwordChangeForm.reset();
+  await refreshSession();
+});
+
+passwordResetStartForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await postJson("/password-reset/start", formJson(passwordResetStartForm));
+});
+
+passwordResetFinishForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await postJson("/password-reset/finish", formJson(passwordResetFinishForm));
+  passwordResetFinishForm.reset();
 });
 
 document.querySelector("#refresh-button").addEventListener("click", refreshSession);
@@ -65,7 +94,13 @@ async function postJson(path, body) {
 }
 
 function formJson(form) {
-  return Object.fromEntries(new FormData(form));
+  const data = Object.fromEntries(new FormData(form));
+
+  for (const checkbox of form.querySelectorAll('input[type="checkbox"]')) {
+    data[checkbox.name] = checkbox.checked;
+  }
+
+  return data;
 }
 
 function render(value) {

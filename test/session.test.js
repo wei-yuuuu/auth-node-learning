@@ -38,3 +38,54 @@ test("SessionService refreshes rolling expiration with node:test mock Date", asy
   assert.equal(refreshedSession.id, sessionId);
   assert.ok(storedSession.expiresAt > originalSession.expiresAt);
 });
+
+test("SessionService consumes verification sessions for one matching action", async () => {
+  const store = new SQLiteStore(":memory:");
+  const sessions = new SessionService(store);
+  const authToken = await sessions.createAuthSession("user-1");
+  const [authSessionId] = authToken.split(".");
+  const wrongPurposeToken = await sessions.createVerificationSession({
+    userId: "user-1",
+    action: "password-update",
+    authSessionId
+  });
+  const token = await sessions.createVerificationSession({
+    userId: "user-1",
+    action: "password-update",
+    authSessionId
+  });
+  const [sessionId] = token.split(".");
+
+  assert.equal(
+    await sessions.consumeVerificationToken(wrongPurposeToken, {
+      action: "email-update",
+      userId: "user-1",
+      authSessionId
+    }),
+    false
+  );
+  assert.equal(await sessions.consumeVerificationToken(wrongPurposeToken, {
+    action: "password-update",
+    userId: "user-1",
+    authSessionId
+  }), false);
+  assert.equal(await sessions.consumeVerificationToken(token, {
+    action: "password-update",
+    userId: "user-1",
+    authSessionId
+  }), true);
+  assert.equal(await store.getSession(sessionId), null);
+});
+
+test("SessionService can invalidate other auth sessions only", async () => {
+  const store = new SQLiteStore(":memory:");
+  const sessions = new SessionService(store);
+  const currentToken = await sessions.createAuthSession("user-1");
+  const otherToken = await sessions.createAuthSession("user-1");
+  const [currentSessionId] = currentToken.split(".");
+
+  await sessions.invalidateOtherAuthSessions("user-1", currentSessionId);
+
+  assert.notEqual(await sessions.validateAuthToken(currentToken), null);
+  assert.equal(await sessions.validateAuthToken(otherToken), null);
+});

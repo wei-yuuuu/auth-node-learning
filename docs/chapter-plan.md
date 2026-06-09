@@ -2,7 +2,7 @@
 
 This project can grow in chapters so each auth concept stays teachable and reviewable.
 
-Current position: Chapter 2 is complete. Chapter 3 is next.
+Current position: Chapter 3 is complete. Chapter 4 is next.
 
 ## Chapter 1: Password Auth Foundation
 
@@ -15,7 +15,7 @@ Status: implemented.
 - Email verification codes.
 - Token bucket rate limits.
 - Current-device and all-device sign-out.
-- Action-specific identity verification session primitive.
+- Verification session primitive for sensitive actions.
 
 ## Chapter 2: Persistent Storage
 
@@ -31,18 +31,28 @@ Implemented:
 
 ## Chapter 3: Password Maintenance
 
-Status: not started.
+Status: implemented.
 
 - Password update.
 - Password reset via email code.
 - Identity verification before sensitive actions.
 - Optional "sign out of all devices" prompt after password change.
 
+Implemented:
+
+- `/password/verify` verifies the current password and creates a single-use verification session.
+- `/password/update` consumes that verification session before changing the password.
+- `/password-reset/start` sends an 8-digit reset code to the account email.
+- `/password-reset/finish` consumes that reset code before changing the password.
+- Password update can sign out other devices.
+- Password reset can sign out all devices.
+- Expired password reset codes are deleted by the existing cleanup path.
+
 ## Chapter 4: Email Address Updates
 
 Status: not started.
 
-- Start an action-specific session.
+- Start a verification session for the email update action.
 - Verify the new email address with a code bound to that session and email.
 - Rate-limit by target email address.
 

@@ -4,7 +4,7 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
 
 ## Current Scope
 
-Current position: Chapter 2 is complete. Chapter 1 auth foundations are implemented, and Chapter 2 persists users, sessions, email verification codes, and rate-limit bucket state in SQLite.
+Current position: Chapter 3 is complete. Chapter 1 auth foundations are implemented, Chapter 2 persists auth state in SQLite, and Chapter 3 adds password maintenance.
 
 ### Sessions
 
@@ -25,7 +25,8 @@ Current position: Chapter 2 is complete. Chapter 1 auth foundations are implemen
   - Expiration is refreshed only after the configured refresh interval.
   - Sign-out deletes the server-side session.
   - Sign-out-all deletes all sessions for the user.
-  - `createActionSession()` creates single-purpose verification sessions for sensitive actions.
+  - `createVerificationSession()` creates single-purpose verification sessions for sensitive actions.
+  - Password update consumes a verification session that is tied to the current auth session.
 
 ### Passwords
 
@@ -57,15 +58,27 @@ Current position: Chapter 2 is complete. Chapter 1 auth foundations are implemen
 - Reference: The article recommends server-side session storage and strict rate limiting; this project keeps those states persistent for local restarts.
 - Implemented in: `src/store/sqlite-store.js`, `src/auth/rate-limit.js`, and `src/server.js`.
 - Code choices:
-  - Users, sessions, email verification codes, and rate-limit buckets are stored in SQLite.
+  - Users, sessions, email verification codes, password reset codes, and rate-limit buckets are stored in SQLite.
   - The server deletes expired records at startup and on a periodic interval.
   - Tests use `:memory:` databases so persistence behavior is covered without writing files.
+
+### Password Maintenance
+
+- Reference: [Auth sessions](https://auth.pilcrowonpaper.com/auth-sessions), especially the recommendation to use action-specific sessions for actions requiring identity verification such as updating a password, and the note that signing out of all devices after password changes should be offered but not mandatory.
+- Implemented in: `src/server.js`, `src/auth/session-service.js`, `src/auth/password-reset-service.js`, and `src/store/sqlite-store.js`.
+- Code choices:
+  - Updating a password requires the current password first.
+  - Successful password verification creates a short-lived, single-use verification session for `password-update`.
+  - Password reset uses an 8-digit email code and a 15-minute expiration.
+  - Password reset request and verification attempts are rate-limited with SQLite-backed buckets.
+  - Password update can sign out other devices while keeping the current session.
+  - Password reset can sign out all devices.
 
 ### Node.js 24 APIs
 
 - Reference: The project uses Node.js 24.16.0 APIs where they make the auth concepts clearer.
 - Implemented in:
-  - `src/store/sqlite-store.js` uses `node:sqlite` for users, sessions, email verification codes, rate-limit buckets, and cleanup.
+  - `src/store/sqlite-store.js` uses `node:sqlite` for users, sessions, email verification codes, password reset codes, rate-limit buckets, and cleanup.
   - `src/auth/hash.js` uses `crypto.hash()` for SHA-256 session-secret hashing.
   - `test/*.test.js` uses the built-in `node:test` runner.
   - `test/rate-limit.test.js`, `test/session.test.js`, and `test/email-code-service.test.js` use mock timers for time-dependent auth behavior.
@@ -86,7 +99,8 @@ Current position: Chapter 2 is complete. Chapter 1 auth foundations are implemen
 - Reference: [basic-example.auth.pilcrowonpaper.com source](https://github.com/pilcrowonpaper/basic-example.auth.pilcrowonpaper.com), whose README lists email verification, password authentication, password update/reset, account deletion, and basic rate limiting.
 - Chapter 1 covers the common foundation: password auth, email verification, sessions, and rate limiting.
 - Chapter 2 is complete with SQLite persistence and cleanup.
-- Later chapters can add password reset, email address update, password update, browser hardening, and account deletion.
+- Chapter 3 is complete with password update and password reset.
+- Later chapters can add email address update, browser hardening, and account deletion.
 
 ## Passwordless Example Notes
 
@@ -98,7 +112,7 @@ Current position: Chapter 2 is complete. Chapter 1 auth foundations are implemen
   - Add passwordless-specific tables instead of replacing password auth tables.
   - Reuse SQLite-backed `rate_limit_buckets` for email-code sign-in and passkey challenge attempts.
   - Reuse existing cleanup infrastructure for expired passwordless sessions and WebAuthn challenges.
-  - Reuse action-specific identity verification sessions before passkey registration and deletion.
+  - Reuse verification sessions before passkey registration and deletion.
   - Restore a small browser HTML UI because WebAuthn passkeys require browser APIs.
 - Planned tables based on the reference schema:
   - `passkeys` for user passkey records.
