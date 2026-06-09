@@ -1,6 +1,6 @@
 # Auth Node Learning
 
-This repository is a chapter-by-chapter Node.js learning implementation inspired by Pilcrow's auth book and example repositories.
+This repository is a chapter-by-chapter Node.js learning implementation inspired by [Pilcrow's auth book](https://auth.pilcrowonpaper.com/) and example repositories.
 
 Current status: Chapter 3 is complete. Chapter 4 is the next planned chapter.
 
