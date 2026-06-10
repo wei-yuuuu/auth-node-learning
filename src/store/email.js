@@ -7,7 +7,7 @@ export function normalizeEmail(email) {
     return "";
   }
 
-  return email.trim().toLowerCase();
+  return email.trim();
 }
 
 export function validateEmail(email) {

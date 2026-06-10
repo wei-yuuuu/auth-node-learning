@@ -29,7 +29,7 @@ sqlite3 -header -column auth-node.sqlite "SELECT id, email, CASE email_verified 
 Columns:
 
 - `id`: Internal user ID.
-- `email`: Normalized lowercase email address.
+- `email`: Trimmed email address that passed the account-identifier rules.
 - `password_hash`: Encoded native Node Argon2id hash. Usually omit it from casual queries.
 - `email_verified`: `1` means verified, `0` means not verified.
 - `created_at`: Unix milliseconds.
@@ -47,7 +47,7 @@ Columns:
 - `id`: Public session ID from the `id.secret` token.
 - `kind`: `auth` for signed-in sessions, `verification` for short-lived identity verification sessions.
 - `user_id`: Owner user ID.
-- `action`: Purpose name for verification sessions, such as `password-update`.
+- `action`: Purpose name for verification sessions, such as `password-update` or `email-update`.
 - `auth_session_id`: Auth session that a verification session is tied to.
 - `secret_hash_hex`: SHA-256 hash of the session secret. The raw secret is never stored.
 - `created_at`: Unix milliseconds.
@@ -92,8 +92,8 @@ sqlite3 -header -column auth-node.sqlite "SELECT name, key, tokens, datetime(upd
 
 Columns:
 
-- `name`: Rate limiter name, such as `password-signin`, `email-code`, `password-reset-request`, or `password-reset-verify`.
-- `key`: Rate limit key, usually a normalized email address.
+- `name`: Rate limiter name, such as `password-signin`, `password-verification`, `email-code`, `password-reset-request`, or `password-reset-verify`.
+- `key`: Rate limit key, usually a validated email address or user ID.
 - `tokens`: Remaining bucket tokens.
 - `updated_at`: Unix milliseconds when the bucket was last refilled/consumed.
 - `expires_at`: Unix milliseconds when the full bucket can be deleted.

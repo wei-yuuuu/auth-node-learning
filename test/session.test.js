@@ -77,6 +77,34 @@ test("SessionService consumes verification sessions for one matching action", as
   assert.equal(await store.getSession(sessionId), null);
 });
 
+test("SessionService can validate a verification session before consuming it", async () => {
+  const store = new SQLiteStore(":memory:");
+  const sessions = new SessionService(store);
+  const authToken = await sessions.createAuthSession("user-1");
+  const [authSessionId] = authToken.split(".");
+  const token = await sessions.createVerificationSession({
+    userId: "user-1",
+    action: "email-update",
+    authSessionId
+  });
+  const [sessionId] = token.split(".");
+
+  const session = await sessions.validateVerificationToken(token, {
+    action: "email-update",
+    userId: "user-1",
+    authSessionId
+  });
+
+  assert.equal(session.id, sessionId);
+  assert.notEqual(await store.getSession(sessionId), null);
+  assert.equal(await sessions.consumeVerificationToken(token, {
+    action: "email-update",
+    userId: "user-1",
+    authSessionId
+  }), true);
+  assert.equal(await store.getSession(sessionId), null);
+});
+
 test("SessionService can invalidate other auth sessions only", async () => {
   const store = new SQLiteStore(":memory:");
   const sessions = new SessionService(store);

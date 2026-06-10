@@ -30,9 +30,16 @@ const passwordAttemptLimiter = new RateLimiter({
   refillTokens: 1,
   refillIntervalMs: 1000 * 60
 }, store);
+const passwordVerificationLimiter = new RateLimiter({
+  name: "password-verification",
+  capacity: 5,
+  refillTokens: 1,
+  refillIntervalMs: 1000 * 60
+}, store);
 
 const AUTH_COOKIE = "auth_session";
 const PASSWORD_UPDATE_COOKIE = "password_update_session";
+const EMAIL_UPDATE_COOKIE = "email_update_session";
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
 
 const server = createServer(async (request, response) => {
@@ -83,6 +90,18 @@ const server = createServer(async (request, response) => {
       return handlePasswordResetFinish(request, response);
     }
 
+    if (request.method === "POST" && url.pathname === "/email-update/verify") {
+      return withAuth(request, response, handleEmailUpdateIdentityVerification);
+    }
+
+    if (request.method === "POST" && url.pathname === "/email-update/start") {
+      return withAuth(request, response, handleEmailUpdateStart);
+    }
+
+    if (request.method === "POST" && url.pathname === "/email-update/finish") {
+      return withAuth(request, response, handleEmailUpdateFinish);
+    }
+
     if (request.method === "GET" && url.pathname === "/me") {
       return withAuth(request, response, handleMe);
     }
@@ -117,7 +136,18 @@ async function handleSignup(request, response) {
   }
 
   const passwordHash = await hashPassword(body.password);
-  const user = await store.createUser({ email, passwordHash });
+  let user;
+
+  try {
+    user = await store.createUser({ email, passwordHash });
+  } catch (error) {
+    if (error.message !== "Email address is already registered.") {
+      throw error;
+    }
+
+    return sendJson(response, 400, { error: error.message });
+  }
+
   const token = await sessions.createAuthSession(user.id);
   const authSession = await sessions.validateAuthToken(token);
 
@@ -214,6 +244,13 @@ async function handleSignin(request, response) {
 async function handlePasswordIdentityVerification(request, response, authSession) {
   const body = await readJson(request);
   const user = await store.getUserById(authSession.userId);
+
+  if (!(await passwordVerificationLimiter.consume(user.id))) {
+    return sendJson(response, 429, {
+      error: "Too many password verification attempts. Try again later."
+    });
+  }
+
   const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
 
   if (!validPassword) {
@@ -327,6 +364,123 @@ async function handlePasswordResetFinish(request, response) {
   return sendJson(response, 200, { ok: true });
 }
 
+async function handleEmailUpdateIdentityVerification(request, response, authSession) {
+  const body = await readJson(request);
+  const user = await store.getUserById(authSession.userId);
+
+  if (!(await passwordVerificationLimiter.consume(user.id))) {
+    return sendJson(response, 429, {
+      error: "Too many password verification attempts. Try again later."
+    });
+  }
+
+  const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
+
+  if (!validPassword) {
+    return sendJson(response, 400, { error: "Password is incorrect." });
+  }
+
+  const verificationToken = await sessions.createVerificationSession({
+    userId: user.id,
+    action: "email-update",
+    authSessionId: authSession.id
+  });
+
+  return sendJson(
+    response,
+    200,
+    { ok: true, message: "Identity verified for email update." },
+    setEmailUpdateCookie(verificationToken)
+  );
+}
+
+async function handleEmailUpdateStart(request, response, authSession) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const emailError = validateEmail(email);
+  const cookies = parseCookies(request.headers.cookie);
+  const verificationToken = cookies.get(EMAIL_UPDATE_COOKIE);
+  const verificationSession = await sessions.validateVerificationToken(verificationToken, {
+    action: "email-update",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+
+  if (!verificationSession) {
+    return sendJson(response, 401, { error: "Email update verification required." });
+  }
+
+  if (emailError) {
+    return sendJson(response, 400, { error: emailError });
+  }
+
+  const existingUser = await store.getUserByEmail(email);
+
+  if (existingUser && existingUser.id !== authSession.userId) {
+    return sendJson(response, 400, { error: "Email address is already registered." });
+  }
+
+  await emailCodes.createEmailVerificationCode({
+    sessionId: verificationSession.id,
+    email
+  });
+
+  return sendJson(response, 200, {
+    ok: true,
+    message: "A verification code was printed to stdout for the new email address."
+  });
+}
+
+async function handleEmailUpdateFinish(request, response, authSession) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const emailError = validateEmail(email);
+  const cookies = parseCookies(request.headers.cookie);
+  const verificationToken = cookies.get(EMAIL_UPDATE_COOKIE);
+  const verificationSession = await sessions.validateVerificationToken(verificationToken, {
+    action: "email-update",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+
+  if (!verificationSession) {
+    return sendJson(response, 401, { error: "Email update verification required." });
+  }
+
+  if (emailError) {
+    return sendJson(response, 400, { error: emailError });
+  }
+
+  const result = await emailCodes.verifyEmailCode({
+    sessionId: verificationSession.id,
+    email,
+    code: body.code
+  });
+
+  if (!result.ok) {
+    return sendJson(response, 400, { error: result.error });
+  }
+
+  await sessions.consumeVerificationToken(verificationToken, {
+    action: "email-update",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+
+  try {
+    await store.updateUserEmail(authSession.userId, email);
+  } catch (error) {
+    return sendJson(response, 400, { error: error.message }, clearEmailUpdateCookie());
+  }
+
+  return sendJson(
+    response,
+    200,
+    { user: publicUser(await store.getUserById(authSession.userId)) },
+    clearEmailUpdateCookie()
+  );
+}
+
 async function handleMe(_request, response, authSession) {
   const user = await store.getUserById(authSession.userId);
   return sendJson(response, 200, { user: publicUser(user) });
@@ -389,6 +543,21 @@ function setPasswordUpdateCookie(token) {
 function clearPasswordUpdateCookie() {
   return {
     "set-cookie": serializeCookie(PASSWORD_UPDATE_COOKIE, "", { maxAge: 0 })
+  };
+}
+
+function setEmailUpdateCookie(token) {
+  return {
+    "set-cookie": serializeCookie(EMAIL_UPDATE_COOKIE, token, {
+      maxAge: 60 * 10,
+      secure: process.env.NODE_ENV === "production"
+    })
+  };
+}
+
+function clearEmailUpdateCookie() {
+  return {
+    "set-cookie": serializeCookie(EMAIL_UPDATE_COOKIE, "", { maxAge: 0 })
   };
 }
 

@@ -2,7 +2,7 @@
 
 This repository is a chapter-by-chapter Node.js learning implementation inspired by [Pilcrow's auth book](https://auth.pilcrowonpaper.com/) and example repositories.
 
-Current status: Chapter 3 is complete. Chapter 4 is the next planned chapter.
+Current status: Chapter 4 is complete. Chapter 5 is the next planned chapter.
 
 ## Implemented So Far
 
@@ -24,11 +24,12 @@ Current status: Chapter 3 is complete. Chapter 4 is the next planned chapter.
 - Password reset with an email code.
 - Optional sign-out of other devices after password update.
 - Optional sign-out of all devices after password reset.
+- Email address update after identity verification and an email code sent to the new address.
 - Built-in `node:test` coverage for password hashing, sessions, rate limits, email-code TTL, SQLite persistence, and random-code formatting.
 
 The API uses a local SQLite database by default while keeping the auth services small enough to inspect.
 
-The current code includes a small browser HTML UI for sign-up, sign-in, email verification, and session controls. Passkey support is planned for a later chapter and will use browser WebAuthn APIs.
+The current code includes a small browser HTML UI for sign-up, sign-in, email verification, email update, and session controls. Passkey support is planned for a later chapter and will use browser WebAuthn APIs.
 
 ## Requirements
 
@@ -135,6 +136,33 @@ Finish a password reset with the code printed to stdout:
 curl -i -X POST http://localhost:3000/password-reset/finish \
   -H 'content-type: application/json' \
   -d '{"email":"demo@example.com","code":"12345678","password":"new correct horse battery staple","signOutAllDevices":true}'
+```
+
+Verify identity before updating the email address:
+
+```sh
+curl -i -X POST http://localhost:3000/email-update/verify \
+  -H 'content-type: application/json' \
+  -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
+  -d '{"password":"correct horse battery staple"}'
+```
+
+Send a verification code to the new email address:
+
+```sh
+curl -i -X POST http://localhost:3000/email-update/start \
+  -H 'content-type: application/json' \
+  -H 'cookie: auth_session=PASTE_COOKIE_VALUE; email_update_session=PASTE_COOKIE_VALUE' \
+  -d '{"email":"new-demo@example.com"}'
+```
+
+Finish the email update with the code printed to stdout:
+
+```sh
+curl -i -X POST http://localhost:3000/email-update/finish \
+  -H 'content-type: application/json' \
+  -H 'cookie: auth_session=PASTE_COOKIE_VALUE; email_update_session=PASTE_COOKIE_VALUE' \
+  -d '{"email":"new-demo@example.com","code":"12345678"}'
 ```
 
 ## References

@@ -8,15 +8,35 @@
     <script type="module" src="/assets/app.js"></script>
   </head>
   <body>
-    <main>
-      <header>
-        <p>Chapter 3 complete</p>
-        <h1>Auth Node Learning</h1>
-      </header>
+    <header class="site-header">
+      <h1>Auth <span class="node-wordmark">Node</span> Learning</h1>
+      <div class="header-account">
+        <details class="account-menu" id="account-menu">
+          <summary class="account-summary" id="account-summary" data-state="signed-out">
+            <span class="avatar" id="account-avatar">?</span>
+            <span class="email-icon">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path d="M4 6h16v12H4z"></path>
+                <path d="m4 7 8 6 8-6"></path>
+              </svg>
+              <span class="verification-mark" id="account-verified" data-verified="false" aria-label="Email not verified">×</span>
+            </span>
+            <span class="account-email" id="account-email">Please sign in</span>
+            <span class="account-id" id="account-id" hidden>ID</span>
+          </summary>
+          <div class="account-menu-panel">
+            <button class="menu-item" id="signout-button" type="button">Sign out</button>
+            <button class="menu-item danger-item" id="signout-all-button" type="button">Sign out all devices</button>
+          </div>
+        </details>
+        <span class="notice" id="notice" hidden></span>
+      </div>
+    </header>
 
-      <section>
-        <form id="signup-form">
-          <h2>Sign up</h2>
+    <main>
+      <section class="flow flow-two">
+        <form id="signup-form" class="step">
+          <h2><span>1</span>Sign up</h2>
           <label>
             Email
             <input name="email" type="email" autocomplete="email" required>
@@ -28,8 +48,22 @@
           <button class="primary" type="submit">Create account</button>
         </form>
 
-        <form id="signin-form">
-          <h2>Sign in</h2>
+        <form id="verify-form" class="step">
+          <h2><span>2</span>Email verification</h2>
+          <label>
+            Email verification code
+            <input name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="12345678">
+          </label>
+          <div class="form-actions">
+            <button class="secondary" type="submit">Verify email</button>
+            <button class="secondary" id="resend-button" type="button">Resend verification code</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="flow flow-two">
+        <form id="signin-form" class="step">
+          <h2><span>3</span>Sign in</h2>
           <label>
             Email
             <input name="email" type="email" autocomplete="email" required>
@@ -40,31 +74,9 @@
           </label>
           <button class="primary" type="submit">Sign in</button>
         </form>
-      </section>
 
-      <section>
-        <h2>Session</h2>
-        <pre id="output">Loading...</pre>
-
-        <form id="verify-form">
-          <label>
-            Email verification code
-            <input name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="12345678">
-          </label>
-          <button class="secondary" type="submit">Verify email</button>
-        </form>
-
-        <div class="actions">
-          <button class="secondary" id="refresh-button" type="button">Refresh</button>
-          <button class="secondary" id="resend-button" type="button">Resend code</button>
-          <button class="neutral" id="signout-button" type="button">Sign out</button>
-          <button class="danger" id="signout-all-button" type="button">Sign out all</button>
-        </div>
-      </section>
-
-      <section>
-        <form id="password-change-form">
-          <h2>Change password</h2>
+        <form id="password-change-form" class="step">
+          <h2><span>4</span>Change password</h2>
           <label>
             Current password
             <input name="currentPassword" type="password" autocomplete="current-password" required>
@@ -81,9 +93,9 @@
         </form>
       </section>
 
-      <section>
-        <form id="password-reset-start-form">
-          <h2>Start password reset</h2>
+      <section class="flow flow-two">
+        <form id="password-reset-start-form" class="step">
+          <h2><span>1</span>Start password reset</h2>
           <label>
             Email
             <input name="email" type="email" autocomplete="email" required>
@@ -91,8 +103,8 @@
           <button class="secondary" type="submit">Send reset code</button>
         </form>
 
-        <form id="password-reset-finish-form">
-          <h2>Finish password reset</h2>
+        <form id="password-reset-finish-form" class="step">
+          <h2><span>2</span>Finish password reset</h2>
           <label>
             Email
             <input name="email" type="email" autocomplete="email" required>
@@ -110,6 +122,39 @@
             Sign out all devices
           </label>
           <button class="danger" type="submit">Reset password</button>
+        </form>
+      </section>
+
+      <section class="flow flow-three">
+        <form id="email-update-verify-form" class="step">
+          <h2><span>1</span>Verify identity</h2>
+          <label>
+            Current password
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="secondary" type="submit">Verify for email update</button>
+        </form>
+
+        <form id="email-update-start-form" class="step">
+          <h2><span>2</span>Start email update</h2>
+          <label>
+            New email
+            <input name="email" type="email" autocomplete="email" required>
+          </label>
+          <button class="secondary" type="submit">Send email code</button>
+        </form>
+
+        <form id="email-update-finish-form" class="step">
+          <h2><span>3</span>Finish email update</h2>
+          <label>
+            New email
+            <input name="email" type="email" autocomplete="email" required>
+          </label>
+          <label>
+            Email update code
+            <input name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="12345678">
+          </label>
+          <button class="primary" type="submit">Update email</button>
         </form>
       </section>
     </main>

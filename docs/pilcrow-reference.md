@@ -4,7 +4,7 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
 
 ## Current Scope
 
-Current position: Chapter 3 is complete. Chapter 1 auth foundations are implemented, Chapter 2 persists auth state in SQLite, and Chapter 3 adds password maintenance.
+Current position: Chapter 4 is complete. Chapter 1 auth foundations are implemented, Chapter 2 persists auth state in SQLite, Chapter 3 adds password maintenance, and Chapter 4 adds email address updates.
 
 ### Sessions
 
@@ -39,7 +39,7 @@ Current position: Chapter 3 is complete. Chapter 1 auth foundations are implemen
   - Password hashes use Node 24.16.0 native `node:crypto` Argon2id with 19 MiB memory, 3 iterations, and parallelism 1.
   - The stored hash encodes the Argon2 parameters, salt, and derived key because Node's native Argon2 API returns a raw derived key.
   - Hashing is guarded by a small async semaphore so concurrent work is queued.
-  - Sign-in attempts are limited with a SQLite-backed token bucket keyed by email.
+  - Sign-in and protected password verification attempts are limited with SQLite-backed token buckets.
   - The server returns explicit account/password errors for this educational app.
 
 ### Email Addresses
@@ -47,7 +47,7 @@ Current position: Chapter 3 is complete. Chapter 1 auth foundations are implemen
 - Reference: [Email addresses](https://auth.pilcrowonpaper.com/email-addresses), especially the listed validation rules for maximum length, exactly one `@`, non-empty username and domain, restricted username/domain characters, and requiring at least one period in the domain.
 - Implemented in: `src/store/email.js` and `src/server.js`.
 - Code choices:
-  - Email input is trimmed and lowercased before validation and storage.
+  - Email input is trimmed, but casing is not silently changed.
   - Email addresses are limited to 100 characters.
   - The username allows lowercase letters, numbers, `.`, `+`, `_`, and `-`.
   - The domain allows lowercase letters, numbers, `-`, and `.`.
@@ -86,6 +86,17 @@ Current position: Chapter 3 is complete. Chapter 1 auth foundations are implemen
   - Password update can sign out other devices while keeping the current session.
   - Password reset can sign out all devices.
 
+### Email Address Updates
+
+- Reference: [Email addresses](https://auth.pilcrowonpaper.com/email-addresses), [Email address verification codes](https://auth.pilcrowonpaper.com/email-address-verification-codes), and [Auth sessions](https://auth.pilcrowonpaper.com/auth-sessions).
+- Implemented in: `src/server.js`, `src/auth/email-code-service.js`, `src/auth/session-service.js`, and `src/store/sqlite-store.js`.
+- Code choices:
+  - Updating an email address first requires password-based identity verification.
+  - The identity check creates an `email-update` verification session tied to the current auth session.
+  - The new email address must pass the same account-identifier validation as sign-up.
+  - The email update code is bound to the verification session ID and the new email address.
+  - Finishing the update consumes the email code and the verification session, then marks the new email address verified.
+
 ### Node.js 24 APIs
 
 - Reference: The project uses Node.js 24.16.0 APIs where they make the auth concepts clearer.
@@ -112,7 +123,8 @@ Current position: Chapter 3 is complete. Chapter 1 auth foundations are implemen
 - Chapter 1 covers the common foundation: password auth, email verification, sessions, and rate limiting.
 - Chapter 2 is complete with SQLite persistence and cleanup.
 - Chapter 3 is complete with password update and password reset.
-- Later chapters can add email address update, browser hardening, and account deletion.
+- Chapter 4 is complete with email address update.
+- Later chapters can add browser hardening and account deletion.
 
 ## Passwordless Example Notes
 

@@ -5,7 +5,7 @@ import { SQLiteStore } from "../src/store/sqlite-store.js";
 test("SQLiteStore persists users, sessions, and email verification codes", async () => {
   const store = new SQLiteStore(":memory:");
   const user = await store.createUser({
-    email: "Demo@Example.com",
+    email: "demo@example.com",
     passwordHash: "hash"
   });
 
@@ -14,6 +14,10 @@ test("SQLiteStore persists users, sessions, and email verification codes", async
   assert.equal((await store.getUserByEmail("demo@example.com")).id, user.id);
 
   await store.markEmailVerified(user.id);
+  assert.equal((await store.getUserById(user.id)).emailVerified, true);
+
+  await store.updateUserEmail(user.id, "new-email@example.com");
+  assert.equal((await store.getUserById(user.id)).email, "new-email@example.com");
   assert.equal((await store.getUserById(user.id)).emailVerified, true);
 
   await store.updateUserPassword(user.id, "new-hash");
@@ -48,6 +52,40 @@ test("SQLiteStore persists users, sessions, and email verification codes", async
     expiresAt: 4
   });
   assert.equal((await store.getPasswordResetCode("demo@example.com")).code, "87654321");
+});
+
+test("SQLiteStore rejects duplicate email updates", async () => {
+  const store = new SQLiteStore(":memory:");
+  const firstUser = await store.createUser({
+    email: "first@example.com",
+    passwordHash: "hash"
+  });
+  await store.createUser({
+    email: "second@example.com",
+    passwordHash: "hash"
+  });
+
+  await assert.rejects(
+    () => store.updateUserEmail(firstUser.id, "second@example.com"),
+    /Email address is already registered\./
+  );
+});
+
+test("SQLiteStore rejects duplicate users", async () => {
+  const store = new SQLiteStore(":memory:");
+
+  await store.createUser({
+    email: "demo@example.com",
+    passwordHash: "hash"
+  });
+
+  await assert.rejects(
+    () => store.createUser({
+      email: "demo@example.com",
+      passwordHash: "hash"
+    }),
+    /Email address is already registered\./
+  );
 });
 
 test("SQLiteStore deletes expired sessions, email codes, and rate-limit buckets", async () => {

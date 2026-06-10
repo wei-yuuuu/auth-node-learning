@@ -54,6 +54,8 @@ export class SessionService {
     return session;
   }
 
+  // Consume is the final step for a sensitive action: validate the token,
+  // then delete it so the verification session is single-use.
   async consumeVerificationToken(token, { action, userId, authSessionId }) {
     const validation = await this.#validateToken(token, "verification");
 
@@ -69,6 +71,28 @@ export class SessionService {
 
     await this.store.deleteSession(session.id);
     return matchesPurpose;
+  }
+
+  // Validate without deleting when a multi-step flow still needs the same
+  // verification session later, such as sending an email-update code first.
+  async validateVerificationToken(token, { action, userId, authSessionId }) {
+    const validation = await this.#validateToken(token, "verification");
+
+    if (!validation) {
+      return null;
+    }
+
+    const { session } = validation;
+
+    if (
+      session.action !== action ||
+      session.userId !== userId ||
+      session.authSessionId !== authSessionId
+    ) {
+      return null;
+    }
+
+    return session;
   }
 
   async invalidateSession(sessionId) {

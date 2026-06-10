@@ -2,7 +2,7 @@
 
 This project can grow in chapters so each auth concept stays teachable and reviewable.
 
-Current position: Chapter 3 is complete. Chapter 4 is next.
+Current position: Chapter 4 is complete. Chapter 5 is next.
 
 ## Chapter 1: Password Auth Foundation
 
@@ -50,11 +50,18 @@ Implemented:
 
 ## Chapter 4: Email Address Updates
 
-Status: not started.
+Status: implemented.
 
 - Start a verification session for the email update action.
 - Verify the new email address with a code bound to that session and email.
 - Rate-limit by target email address.
+
+Implemented:
+
+- `/email-update/verify` verifies the current password and creates a single-use verification session.
+- `/email-update/start` sends an 8-digit code to the new email address.
+- `/email-update/finish` consumes the code and verification session before updating the account email.
+- Updated email addresses are marked verified because the code was sent to the new address.
 
 ## Chapter 5: Browser Hardening
 

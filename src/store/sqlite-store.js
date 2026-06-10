@@ -52,6 +52,21 @@ export class SQLiteStore {
     this.markEmailVerifiedStatement.run(userId);
   }
 
+  async updateUserEmail(userId, email) {
+    try {
+      this.updateUserEmailStatement.run({
+        id: userId,
+        email: normalizeEmail(email)
+      });
+    } catch (error) {
+      if (error.code === "ERR_SQLITE_ERROR") {
+        throw new Error("Email address is already registered.");
+      }
+
+      throw error;
+    }
+  }
+
   async updateUserPassword(userId, passwordHash) {
     this.updateUserPasswordStatement.run({
       id: userId,
@@ -226,6 +241,9 @@ export class SQLiteStore {
     this.getUserByIdStatement = this.database.prepare("SELECT * FROM users WHERE id = ?");
     this.markEmailVerifiedStatement = this.database.prepare(
       "UPDATE users SET email_verified = 1 WHERE id = ?"
+    );
+    this.updateUserEmailStatement = this.database.prepare(
+      "UPDATE users SET email = :email, email_verified = 1 WHERE id = :id"
     );
     this.updateUserPasswordStatement = this.database.prepare(
       "UPDATE users SET password_hash = :password_hash WHERE id = :id"
