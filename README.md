@@ -2,8 +2,6 @@
 
 This repository is a chapter-by-chapter Node.js learning implementation inspired by [Pilcrow's auth book](https://auth.pilcrowonpaper.com/) and example repositories.
 
-Current status: Chapter 4 is complete. Chapter 5 is the next planned chapter.
-
 ## Implemented So Far
 
 - Password sign-up and sign-in with Argon2id.
@@ -25,6 +23,7 @@ Current status: Chapter 4 is complete. Chapter 5 is the next planned chapter.
 - Optional sign-out of other devices after password update.
 - Optional sign-out of all devices after password reset.
 - Email address update after identity verification and an email code sent to the new address.
+- Browser hardening for unsafe JSON requests with strict content-type and same-origin checks.
 - Built-in `node:test` coverage for password hashing, sessions, rate limits, email-code TTL, SQLite persistence, and random-code formatting.
 
 The API uses a local SQLite database by default while keeping the auth services small enough to inspect.
@@ -80,9 +79,12 @@ The test suite uses `node:test` mock timers for rate-limit refill, rolling sessi
 
 ## Try It
 
+The browser automatically sends `Sec-Fetch-Site` for same-origin requests. The curl examples include an `Origin` header because Chapter 5 rejects unsafe requests that do not prove they came from the same origin.
+
 ```sh
 curl -i -X POST http://localhost:3000/signup \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -d '{"email":"demo@example.com","password":"correct horse battery staple"}'
 ```
 
@@ -91,6 +93,7 @@ The verification code is printed to stdout by the development email sender.
 ```sh
 curl -i -X POST http://localhost:3000/verify-email \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
   -d '{"code":"12345678"}'
 ```
@@ -109,6 +112,7 @@ The browser UI presents this as one "Change password" form. Internally, it first
 ```sh
 curl -i -X POST http://localhost:3000/password/verify \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
   -d '{"password":"correct horse battery staple"}'
 ```
@@ -118,6 +122,7 @@ Update the password with the returned `password_update_session` cookie:
 ```sh
 curl -i -X POST http://localhost:3000/password/update \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -H 'cookie: auth_session=PASTE_COOKIE_VALUE; password_update_session=PASTE_COOKIE_VALUE' \
   -d '{"password":"new correct horse battery staple","signOutOtherDevices":true}'
 ```
@@ -127,6 +132,7 @@ Start a password reset:
 ```sh
 curl -i -X POST http://localhost:3000/password-reset/start \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -d '{"email":"demo@example.com"}'
 ```
 
@@ -135,6 +141,7 @@ Finish a password reset with the code printed to stdout:
 ```sh
 curl -i -X POST http://localhost:3000/password-reset/finish \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -d '{"email":"demo@example.com","code":"12345678","password":"new correct horse battery staple","signOutAllDevices":true}'
 ```
 
@@ -143,6 +150,7 @@ Verify identity before updating the email address:
 ```sh
 curl -i -X POST http://localhost:3000/email-update/verify \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
   -d '{"password":"correct horse battery staple"}'
 ```
@@ -152,6 +160,7 @@ Send a verification code to the new email address:
 ```sh
 curl -i -X POST http://localhost:3000/email-update/start \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -H 'cookie: auth_session=PASTE_COOKIE_VALUE; email_update_session=PASTE_COOKIE_VALUE' \
   -d '{"email":"new-demo@example.com"}'
 ```
@@ -161,6 +170,7 @@ Finish the email update with the code printed to stdout:
 ```sh
 curl -i -X POST http://localhost:3000/email-update/finish \
   -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
   -H 'cookie: auth_session=PASTE_COOKIE_VALUE; email_update_session=PASTE_COOKIE_VALUE' \
   -d '{"email":"new-demo@example.com","code":"12345678"}'
 ```

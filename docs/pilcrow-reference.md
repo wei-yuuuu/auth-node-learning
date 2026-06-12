@@ -2,10 +2,6 @@
 
 Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
 
-## Current Scope
-
-Current position: Chapter 4 is complete. Chapter 1 auth foundations are implemented, Chapter 2 persists auth state in SQLite, Chapter 3 adds password maintenance, and Chapter 4 adds email address updates.
-
 ### Sessions
 
 - Reference: [Sessions](https://auth.pilcrowonpaper.com/sessions), especially the paragraphs that recommend storing a server-side session record, issuing a client token, and generating both a session ID and a session secret.
@@ -117,20 +113,26 @@ Current position: Chapter 4 is complete. Chapter 1 auth foundations are implemen
   - Auth cookies are `HttpOnly`, `SameSite=Lax`, path-scoped to `/`, and marked `Secure` in production.
   - Browser JavaScript should never read the auth session token directly.
 
+### Browser Hardening
+
+- Reference: [Browser client-side storage](https://auth.pilcrowonpaper.com/browser-client-side-storage) and [Cross-site request forgery (CSRF)](https://auth.pilcrowonpaper.com/csrf), especially the notes that cookies can be attached automatically, `SameSite` is a useful default but not a complete solution, simple requests must not be accepted for unsafe actions, and strict origin checks should reject non-GET requests from untrusted origins.
+- Implemented in: `src/http/request-guards.js` and `src/server.js`.
+- Code choices:
+  - All unsafe methods must use `Content-Type: application/json`.
+  - Content type validation parses the MIME type so values like `text/plain; application/json` are still rejected as `text/plain`.
+  - Browser unsafe requests are allowed only when `Sec-Fetch-Site` is `same-origin`.
+  - When `Sec-Fetch-Site` is unavailable, an exact same-origin `Origin` header is required.
+  - Anti-CSRF tokens are still useful for HTML form flows, but this JSON API starts with strict origin checks and non-simple request content type.
+  - Invalid JSON bodies return `400` so malformed client input is not reported as an internal server error.
+
 ## Example Repository Notes
 
 - Reference: [basic-example.auth.pilcrowonpaper.com source](https://github.com/pilcrowonpaper/basic-example.auth.pilcrowonpaper.com), whose README lists email verification, password authentication, password update/reset, account deletion, and basic rate limiting.
-- Chapter 1 covers the common foundation: password auth, email verification, sessions, and rate limiting.
-- Chapter 2 is complete with SQLite persistence and cleanup.
-- Chapter 3 is complete with password update and password reset.
-- Chapter 4 is complete with email address update.
-- Later chapters can add browser hardening and account deletion.
+- This project follows the same broad learning path: password auth, email verification, sessions, rate limiting, password maintenance, email address updates, browser hardening, and account deletion.
 
 ## Passwordless Example Notes
 
 - Reference: [passwordless-example.auth.pilcrowonpaper.com source](https://github.com/pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com), whose README describes email code sign-in, passkey authentication, passkey registration/deletion, email address update, account deletion, SQLite storage, basic rate limiting, and local development emails printed to stdout.
-- Current status: not implemented in this Node.js project yet.
-- Planned chapter: Chapter 7, Passwordless and Passkeys.
 - Integration approach:
   - Keep the existing `sessions` table and auth-session validation as the shared signed-in state.
   - Add passwordless-specific tables instead of replacing password auth tables.

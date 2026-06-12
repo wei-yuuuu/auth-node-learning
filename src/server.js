@@ -9,6 +9,7 @@ import { RateLimiter } from "./auth/rate-limit.js";
 import { SessionService } from "./auth/session-service.js";
 import { parseCookies, serializeCookie } from "./http/cookies.js";
 import { readJson, sendJson } from "./http/json.js";
+import { validateUnsafeBrowserRequest } from "./http/request-guards.js";
 import { normalizeEmail, validateEmail } from "./store/email.js";
 import { SQLiteStore } from "./store/sqlite-store.js";
 
@@ -45,6 +46,15 @@ const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
+    const browserRequestError = validateUnsafeBrowserRequest(request);
+
+    if (browserRequestError) {
+      return sendJson(
+        response,
+        browserRequestError.statusCode,
+        { error: browserRequestError.message }
+      );
+    }
 
     if (request.method === "GET" && url.pathname === "/") {
       return serveStaticFile(response, "index.html");
@@ -116,6 +126,12 @@ const server = createServer(async (request, response) => {
 
     return sendJson(response, 404, { error: "Not found." });
   } catch (error) {
+    // readJson() uses JSON.parse(). Invalid request JSON is client input, so it
+    // should be a 400 response instead of an internal server error.
+    if (error instanceof SyntaxError) {
+      return sendJson(response, 400, { error: "Request body must be valid JSON." });
+    }
+
     console.error(error);
     return sendJson(response, 500, { error: "Internal server error." });
   }

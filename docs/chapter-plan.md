@@ -2,11 +2,7 @@
 
 This project can grow in chapters so each auth concept stays teachable and reviewable.
 
-Current position: Chapter 4 is complete. Chapter 5 is next.
-
-## Chapter 1: Password Auth Foundation
-
-Status: implemented.
+## [x] Chapter 1: Password Auth Foundation
 
 - Password sign-up and sign-in.
 - Native Node.js `node:crypto` Argon2id hashing with queued concurrency.
@@ -17,11 +13,7 @@ Status: implemented.
 - Current-device and all-device sign-out.
 - Verification session primitive for sensitive actions.
 
-## Chapter 2: Persistent Storage
-
-Status: implemented.
-
-Implemented:
+## [x] Chapter 2: Persistent Storage
 
 - Replaced the teaching-only in-memory store with `node:sqlite`.
 - Added SQLite tables for users, sessions, and email verification codes.
@@ -29,17 +21,12 @@ Implemented:
 - Added cleanup for expired sessions, email verification codes, and rate-limit buckets.
 - Kept tests on disposable `:memory:` databases.
 
-## Chapter 3: Password Maintenance
-
-Status: implemented.
+## [x] Chapter 3: Password Maintenance
 
 - Password update.
 - Password reset via email code.
 - Identity verification before sensitive actions.
 - Optional "sign out of all devices" prompt after password change.
-
-Implemented:
-
 - `/password/verify` verifies the current password and creates a single-use verification session.
 - `/password/update` consumes that verification session before changing the password.
 - `/password-reset/start` sends an 8-digit reset code to the account email.
@@ -48,41 +35,36 @@ Implemented:
 - Password reset can sign out all devices.
 - Expired password reset codes are deleted by the existing cleanup path.
 
-## Chapter 4: Email Address Updates
-
-Status: implemented.
+## [x] Chapter 4: Email Address Updates
 
 - Start a verification session for the email update action.
 - Verify the new email address with a code bound to that session and email.
 - Rate-limit by target email address.
-
-Implemented:
-
 - `/email-update/verify` verifies the current password and creates a single-use verification session.
 - `/email-update/start` sends an 8-digit code to the new email address.
 - `/email-update/finish` consumes the code and verification session before updating the account email.
 - Updated email addresses are marked verified because the code was sent to the new address.
 
-## Chapter 5: Browser Hardening
-
-Status: not started.
+## [x] Chapter 5: Browser Hardening
 
 - Restore a small browser HTML UI for the existing password and email-code flows.
 - CSRF protection for cookie-authenticated unsafe methods.
 - Secure cookie behavior for production.
 - Origin and content-type checks.
+- Unsafe methods must use `Content-Type: application/json`.
+- JSON content-type parsing uses the MIME type instead of substring matching.
+- Browser unsafe requests must send `Sec-Fetch-Site: same-origin`.
+- Non-browser clients can use an exact same-origin `Origin` header fallback.
+- Invalid JSON request bodies return `400` instead of a generic server error.
+- Cookies remain `HttpOnly`, `SameSite=Lax`, path-scoped to `/`, and `Secure` in production.
 
-## Chapter 6: Account Deletion
-
-Status: not started.
+## [ ] Chapter 6: Account Deletion
 
 - Identity verification before deletion.
 - Server-side session invalidation.
 - Background cleanup behavior.
 
-## Chapter 7: Passwordless and Passkeys
-
-Status: not started.
+## [ ] Chapter 7: Passwordless and Passkeys
 
 Reference: [pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com](https://github.com/pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com).
 
