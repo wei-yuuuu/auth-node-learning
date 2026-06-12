@@ -81,10 +81,20 @@ The test suite uses `node:test` mock timers for rate-limit refill, rolling sessi
 
 The browser automatically sends `Sec-Fetch-Site` for same-origin requests. The curl examples include an `Origin` header because Chapter 5 rejects unsafe requests that do not prove they came from the same origin.
 
+The browser UI also sends an anti-CSRF token on every unsafe JSON request. For curl, first save the CSRF cookie and copy it into a shell variable:
+
+```sh
+curl -s -c /tmp/auth-node-cookies.txt http://localhost:3000/ >/dev/null
+CSRF_TOKEN=$(awk '$6 == "csrf_token" { print $7 }' /tmp/auth-node-cookies.txt)
+```
+
 ```sh
 curl -i -X POST http://localhost:3000/signup \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"email":"demo@example.com","password":"correct horse battery staple"}'
 ```
 
@@ -92,9 +102,11 @@ The verification code is printed to stdout by the development email sender.
 
 ```sh
 curl -i -X POST http://localhost:3000/verify-email \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
-  -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"code":"12345678"}'
 ```
 
@@ -102,7 +114,7 @@ Check the current session with the cookie returned by sign-up or sign-in:
 
 ```sh
 curl -i http://localhost:3000/me \
-  -H 'cookie: auth_session=PASTE_COOKIE_VALUE'
+  -b /tmp/auth-node-cookies.txt
 ```
 
 Verify identity before updating the password:
@@ -111,9 +123,11 @@ The browser UI presents this as one "Change password" form. Internally, it first
 
 ```sh
 curl -i -X POST http://localhost:3000/password/verify \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
-  -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"password":"correct horse battery staple"}'
 ```
 
@@ -121,9 +135,11 @@ Update the password with the returned `password_update_session` cookie:
 
 ```sh
 curl -i -X POST http://localhost:3000/password/update \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
-  -H 'cookie: auth_session=PASTE_COOKIE_VALUE; password_update_session=PASTE_COOKIE_VALUE' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"password":"new correct horse battery staple","signOutOtherDevices":true}'
 ```
 
@@ -131,8 +147,11 @@ Start a password reset:
 
 ```sh
 curl -i -X POST http://localhost:3000/password-reset/start \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"email":"demo@example.com"}'
 ```
 
@@ -140,8 +159,11 @@ Finish a password reset with the code printed to stdout:
 
 ```sh
 curl -i -X POST http://localhost:3000/password-reset/finish \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"email":"demo@example.com","code":"12345678","password":"new correct horse battery staple","signOutAllDevices":true}'
 ```
 
@@ -149,9 +171,11 @@ Verify identity before updating the email address:
 
 ```sh
 curl -i -X POST http://localhost:3000/email-update/verify \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
-  -H 'cookie: auth_session=PASTE_COOKIE_VALUE' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"password":"correct horse battery staple"}'
 ```
 
@@ -159,9 +183,11 @@ Send a verification code to the new email address:
 
 ```sh
 curl -i -X POST http://localhost:3000/email-update/start \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
-  -H 'cookie: auth_session=PASTE_COOKIE_VALUE; email_update_session=PASTE_COOKIE_VALUE' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"email":"new-demo@example.com"}'
 ```
 
@@ -169,9 +195,11 @@ Finish the email update with the code printed to stdout:
 
 ```sh
 curl -i -X POST http://localhost:3000/email-update/finish \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
   -H 'content-type: application/json' \
   -H 'origin: http://localhost:3000' \
-  -H 'cookie: auth_session=PASTE_COOKIE_VALUE; email_update_session=PASTE_COOKIE_VALUE' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"email":"new-demo@example.com","code":"12345678"}'
 ```
 

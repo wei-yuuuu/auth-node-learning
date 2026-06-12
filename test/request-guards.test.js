@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CSRF_COOKIE,
+  CSRF_HEADER,
+  validateCsrfToken,
   validateJsonContentType,
   validateSameOrigin,
   validateUnsafeBrowserRequest
@@ -68,7 +71,9 @@ test("validateUnsafeBrowserRequest skips safe methods and guards unsafe methods"
   assert.equal(
     validateUnsafeBrowserRequest(request({
       "content-type": "application/json",
-      "sec-fetch-site": "same-origin"
+      "sec-fetch-site": "same-origin",
+      cookie: `${CSRF_COOKIE}=token`,
+      [CSRF_HEADER]: "token"
     }, "POST")),
     null
   );
@@ -81,6 +86,30 @@ test("validateUnsafeBrowserRequest skips safe methods and guards unsafe methods"
       message: "Unsafe requests must come from the same origin."
     }
   );
+});
+
+test("validateCsrfToken requires matching cookie and request header", () => {
+  assert.equal(
+    validateCsrfToken(request({
+      cookie: `${CSRF_COOKIE}=token`,
+      [CSRF_HEADER]: "token"
+    })),
+    null
+  );
+  assert.deepEqual(
+    validateCsrfToken(request({
+      cookie: `${CSRF_COOKIE}=token`,
+      [CSRF_HEADER]: "other-token"
+    })),
+    {
+      statusCode: 403,
+      message: "CSRF token is missing or invalid."
+    }
+  );
+  assert.deepEqual(validateCsrfToken(request({})), {
+    statusCode: 403,
+    message: "CSRF token is missing or invalid."
+  });
 });
 
 function request(headers, method = "POST") {

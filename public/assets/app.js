@@ -114,7 +114,8 @@ async function postJson(path, body) {
   const response = await fetch(path, {
     method: "POST",
     headers: {
-      "content-type": "application/json"
+      "content-type": "application/json",
+      "x-csrf-token": readCookie("csrf_token") ?? ""
     },
     credentials: "same-origin",
     body: JSON.stringify(body)
@@ -135,6 +136,18 @@ function formJson(form) {
   }
 
   return data;
+}
+
+function readCookie(name) {
+  for (const part of document.cookie.split(";")) {
+    const [cookieName, ...valueParts] = part.trim().split("=");
+
+    if (cookieName === name) {
+      return decodeURIComponent(valueParts.join("="));
+    }
+  }
+
+  return null;
 }
 
 function render(value, { clearAccount = false } = {}) {

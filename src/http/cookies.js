@@ -21,7 +21,13 @@ export function serializeCookie(name, value, options = {}) {
     parts.push(`Max-Age=${options.maxAge}`);
   }
 
-  parts.push("Path=/", "HttpOnly", "SameSite=Lax");
+  parts.push("Path=/");
+
+  if (options.httpOnly !== false) {
+    parts.push("HttpOnly");
+  }
+
+  parts.push("SameSite=Lax");
 
   if (options.secure) {
     parts.push("Secure");

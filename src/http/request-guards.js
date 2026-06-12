@@ -1,13 +1,17 @@
+import { timingSafeEqual } from "node:crypto";
 import { MIMEType } from "node:util";
+import { parseCookies } from "./cookies.js";
 
 // Anti-CSRF tokens are still common, especially for HTML forms. This JSON API
-// starts with Pilcrow's stricter origin checks and non-simple content type so
-// the browser must prove the request came from the same origin.
+// combines Pilcrow's stricter origin checks, a non-simple content type, and a
+// double-submit CSRF cookie/header check for unsafe requests.
 
 // These methods are safe for CSRF purposes because this server does not use
 // them for state changes. Pilcrow's CSRF chapter specifically calls out GET and
 // "GET-like" methods (HEAD, OPTIONS, TRACE) when discussing SameSite=Lax.
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "TRACE"]);
+export const CSRF_COOKIE = "csrf_token";
+export const CSRF_HEADER = "x-csrf-token";
 
 export function validateUnsafeBrowserRequest(request) {
   if (SAFE_METHODS.has(request.method)) {
@@ -24,6 +28,12 @@ export function validateUnsafeBrowserRequest(request) {
 
   if (csrfError) {
     return csrfError;
+  }
+
+  const tokenError = validateCsrfToken(request);
+
+  if (tokenError) {
+    return tokenError;
   }
 
   return null;
@@ -75,6 +85,21 @@ export function validateSameOrigin(request) {
   return null;
 }
 
+export function validateCsrfToken(request) {
+  const cookies = parseCookies(request.headers.cookie);
+  const cookieToken = cookies.get(CSRF_COOKIE);
+  const headerToken = singleHeader(request.headers[CSRF_HEADER]);
+
+  if (!cookieToken || !headerToken || !sameToken(cookieToken, headerToken)) {
+    return {
+      statusCode: 403,
+      message: "CSRF token is missing or invalid."
+    };
+  }
+
+  return null;
+}
+
 function parseMimeType(header) {
   const value = singleHeader(header);
 
@@ -99,6 +124,17 @@ function requestOrigin(request) {
   const protocol = request.socket?.encrypted ? "https" : "http";
 
   return `${protocol}://${host}`;
+}
+
+function sameToken(a, b) {
+  const aBuffer = Buffer.from(a);
+  const bBuffer = Buffer.from(b);
+
+  if (aBuffer.length !== bBuffer.length) {
+    return false;
+  }
+
+  return timingSafeEqual(aBuffer, bBuffer);
 }
 
 function singleHeader(header) {

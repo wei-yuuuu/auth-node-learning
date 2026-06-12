@@ -55,6 +55,7 @@ This project can grow in chapters so each auth concept stays teachable and revie
 - JSON content-type parsing uses the MIME type instead of substring matching.
 - Browser unsafe requests must send `Sec-Fetch-Site: same-origin`.
 - Non-browser clients can use an exact same-origin `Origin` header fallback.
+- Unsafe requests must include a double-submit anti-CSRF token cookie/header pair.
 - Invalid JSON request bodies return `400` instead of a generic server error.
 - Cookies remain `HttpOnly`, `SameSite=Lax`, path-scoped to `/`, and `Secure` in production.
 

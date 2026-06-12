@@ -122,7 +122,7 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
   - Content type validation parses the MIME type so values like `text/plain; application/json` are still rejected as `text/plain`.
   - Browser unsafe requests are allowed only when `Sec-Fetch-Site` is `same-origin`.
   - When `Sec-Fetch-Site` is unavailable, an exact same-origin `Origin` header is required.
-  - Anti-CSRF tokens are still useful for HTML form flows, but this JSON API starts with strict origin checks and non-simple request content type.
+  - The browser UI also sends a double-submit anti-CSRF token: a readable `csrf_token` cookie must match the `x-csrf-token` request header.
   - Invalid JSON bodies return `400` so malformed client input is not reported as an internal server error.
 
 ## Example Repository Notes

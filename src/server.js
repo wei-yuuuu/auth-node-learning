@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -9,7 +10,7 @@ import { RateLimiter } from "./auth/rate-limit.js";
 import { SessionService } from "./auth/session-service.js";
 import { parseCookies, serializeCookie } from "./http/cookies.js";
 import { readJson, sendJson } from "./http/json.js";
-import { validateUnsafeBrowserRequest } from "./http/request-guards.js";
+import { CSRF_COOKIE, validateUnsafeBrowserRequest } from "./http/request-guards.js";
 import { normalizeEmail, validateEmail } from "./store/email.js";
 import { SQLiteStore } from "./store/sqlite-store.js";
 
@@ -57,7 +58,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/") {
-      return serveStaticFile(response, "index.html");
+      return serveStaticFile(response, "index.html", setCsrfCookie(createCsrfToken()));
     }
 
     if (request.method === "GET" && url.pathname.startsWith("/assets/")) {
@@ -577,7 +578,20 @@ function clearEmailUpdateCookie() {
   };
 }
 
-async function serveStaticFile(response, relativePath) {
+function createCsrfToken() {
+  return randomBytes(32).toString("base64url");
+}
+
+function setCsrfCookie(token) {
+  return {
+    "set-cookie": serializeCookie(CSRF_COOKIE, token, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production"
+    })
+  };
+}
+
+async function serveStaticFile(response, relativePath, headers = {}) {
   const safeRelativePath = normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
   const filePath = join(publicDirectory, safeRelativePath);
 
@@ -585,7 +599,8 @@ async function serveStaticFile(response, relativePath) {
     const body = await readFile(filePath);
 
     response.writeHead(200, {
-      "content-type": contentTypeFor(filePath)
+      "content-type": contentTypeFor(filePath),
+      ...headers
     });
     response.end(body);
   } catch {
