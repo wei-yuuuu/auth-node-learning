@@ -37,13 +37,18 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
   - Hashing is guarded by a small async semaphore so concurrent work is queued.
   - Sign-in and protected password verification attempts are limited with SQLite-backed token buckets.
   - The server returns explicit account/password errors for this educational app.
+  - User enumeration trade-off: Pilcrow notes that preventing it entirely is difficult in practice.
+  - Password hashing is slow, so response timing can still hint whether an account exists.
+  - Dummy hashing for missing accounts complicates rate limiting and still does not fully remove timing inference.
+  - Generic errors improve opacity, but they make it unclear whether the user mistyped credentials or the account does not exist.
+  - This project accepts that UX trade-off and returns explicit sign-in errors. If an account identifier must be protected, use an opaque identifier such as a user ID or username instead of an email address.
 
 ### Email Addresses
 
 - Reference: [Email addresses](https://auth.pilcrowonpaper.com/email-addresses), especially the listed validation rules for maximum length, exactly one `@`, non-empty username and domain, restricted username/domain characters, and requiring at least one period in the domain.
 - Implemented in: `src/store/email.js` and `src/server.js`.
 - Code choices:
-  - Email input is trimmed, but casing is not silently changed.
+  - Email input is not silently normalized: no trimming, lowercasing, plus-alias stripping, or local-part rewriting.
   - Email addresses are limited to 100 characters.
   - The username allows lowercase letters, numbers, `.`, `+`, `_`, and `-`.
   - The domain allows lowercase letters, numbers, `-`, and `.`.
@@ -124,6 +129,17 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
   - When `Sec-Fetch-Site` is unavailable, an exact same-origin `Origin` header is required.
   - The browser UI also sends a double-submit anti-CSRF token: a readable `csrf_token` cookie must match the `x-csrf-token` request header.
   - Invalid JSON bodies return `400` so malformed client input is not reported as an internal server error.
+
+### Account Deletion
+
+- Reference: [Auth sessions](https://auth.pilcrowonpaper.com/auth-sessions) for action-specific verification sessions and [basic auth example source](https://github.com/pilcrowonpaper/basic-example.auth.pilcrowonpaper.com), which includes account deletion as part of the password-auth example.
+- Implemented in: `src/server.js`, `src/auth/session-service.js`, and `src/store/sqlite-store.js`.
+- Code choices:
+  - Deleting an account first requires password-based identity verification.
+  - The identity check creates an `account-delete` verification session tied to the current auth session.
+  - The final delete request also requires typing the current account email, matching common destructive-action confirmation UI.
+  - Finishing deletion consumes that verification session before deleting the user.
+  - Deletion clears sessions, email verification codes, password reset codes, and user/email keyed rate-limit buckets.
 
 ## Example Repository Notes
 

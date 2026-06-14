@@ -29,11 +29,12 @@
             <button class="menu-item danger-item" id="signout-all-button" type="button">Sign out all devices</button>
           </div>
         </details>
-        <span class="notice" id="notice" hidden></span>
       </div>
     </header>
 
     <main>
+      <p class="notice" id="notice" hidden></p>
+
       <section class="flow flow-two">
         <form id="signup-form" class="step">
           <h2><span>1</span>Sign up</h2>
@@ -155,6 +156,26 @@
             <input name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="12345678">
           </label>
           <button class="primary" type="submit">Update email</button>
+        </form>
+      </section>
+
+      <section class="flow flow-two">
+        <form id="account-delete-verify-form" class="step">
+          <h2><span>1</span>Verify identity</h2>
+          <label>
+            Current password
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="secondary" type="submit">Verify for account deletion</button>
+        </form>
+
+        <form id="account-delete-form" class="step">
+          <h2><span>2</span>Delete account</h2>
+          <label>
+            Type your account email
+            <input name="confirmationEmail" type="email" autocomplete="email" required>
+          </label>
+          <button class="danger" type="submit">Delete account</button>
         </form>
       </section>
     </main>

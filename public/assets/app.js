@@ -14,24 +14,41 @@ const passwordResetFinishForm = document.querySelector("#password-reset-finish-f
 const emailUpdateVerifyForm = document.querySelector("#email-update-verify-form");
 const emailUpdateStartForm = document.querySelector("#email-update-start-form");
 const emailUpdateFinishForm = document.querySelector("#email-update-finish-form");
+const accountDeleteVerifyForm = document.querySelector("#account-delete-verify-form");
+const accountDeleteForm = document.querySelector("#account-delete-form");
 
 signupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/signup", formJson(signupForm));
+  const result = await postJson("/signup", formJson(signupForm), { form: signupForm });
+
+  if (!result.ok) {
+    return;
+  }
+
   signupForm.reset();
   await refreshSession();
 });
 
 signinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/signin", formJson(signinForm));
+  const result = await postJson("/signin", formJson(signinForm), { form: signinForm });
+
+  if (!result.ok) {
+    return;
+  }
+
   signinForm.reset();
   await refreshSession();
 });
 
 verifyForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/verify-email", formJson(verifyForm));
+  const result = await postJson("/verify-email", formJson(verifyForm), { form: verifyForm });
+
+  if (!result.ok) {
+    return;
+  }
+
   verifyForm.reset();
   await refreshSession();
 });
@@ -40,48 +57,140 @@ passwordChangeForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = formJson(passwordChangeForm);
 
-  await postJson("/password/verify", {
-    password: data.currentPassword
-  });
-  await postJson("/password/update", {
-    password: data.newPassword,
-    signOutOtherDevices: data.signOutOtherDevices
-  });
+  const verifyResult = await postJson(
+    "/password/verify",
+    { password: data.currentPassword },
+    {
+      form: passwordChangeForm,
+      fieldAliases: { password: "currentPassword" }
+    }
+  );
+
+  if (!verifyResult.ok) {
+    return;
+  }
+
+  const updateResult = await postJson(
+    "/password/update",
+    {
+      password: data.newPassword,
+      signOutOtherDevices: data.signOutOtherDevices
+    },
+    {
+      form: passwordChangeForm,
+      fieldAliases: { password: "newPassword" }
+    }
+  );
+
+  if (!updateResult.ok) {
+    return;
+  }
+
   passwordChangeForm.reset();
   await refreshSession();
 });
 
 passwordResetStartForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/password-reset/start", formJson(passwordResetStartForm));
+  await postJson(
+    "/password-reset/start",
+    formJson(passwordResetStartForm),
+    { form: passwordResetStartForm }
+  );
 });
 
 passwordResetFinishForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/password-reset/finish", formJson(passwordResetFinishForm));
+  const result = await postJson(
+    "/password-reset/finish",
+    formJson(passwordResetFinishForm),
+    { form: passwordResetFinishForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
   passwordResetFinishForm.reset();
 });
 
 emailUpdateVerifyForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/email-update/verify", formJson(emailUpdateVerifyForm));
+  const result = await postJson(
+    "/email-update/verify",
+    formJson(emailUpdateVerifyForm),
+    { form: emailUpdateVerifyForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
   emailUpdateVerifyForm.reset();
 });
 
 emailUpdateStartForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/email-update/start", formJson(emailUpdateStartForm));
+  await postJson(
+    "/email-update/start",
+    formJson(emailUpdateStartForm),
+    { form: emailUpdateStartForm }
+  );
 });
 
 emailUpdateFinishForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJson("/email-update/finish", formJson(emailUpdateFinishForm));
+  const result = await postJson(
+    "/email-update/finish",
+    formJson(emailUpdateFinishForm),
+    { form: emailUpdateFinishForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
   emailUpdateFinishForm.reset();
   await refreshSession();
 });
 
+accountDeleteVerifyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const result = await postJson(
+    "/account/delete/verify",
+    formJson(accountDeleteVerifyForm),
+    { form: accountDeleteVerifyForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
+  accountDeleteVerifyForm.reset();
+});
+
+accountDeleteForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const result = await postJson(
+    "/account/delete",
+    formJson(accountDeleteForm),
+    { form: accountDeleteForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
+  accountDeleteForm.reset();
+});
+
 document.querySelector("#resend-button").addEventListener("click", async () => {
-  await postJson("/verify-email/resend", {});
+  const result = await postJson("/verify-email/resend", {}, { form: verifyForm });
+
+  if (!result.ok) {
+    return;
+  }
+
   await refreshSession();
 });
 accountSummary.addEventListener("click", (event) => {
@@ -110,7 +219,7 @@ async function refreshSession() {
   render(response.ok ? body : { signedIn: false, ...body });
 }
 
-async function postJson(path, body) {
+async function postJson(path, body, { form = null, fieldAliases = {} } = {}) {
   const response = await fetch(path, {
     method: "POST",
     headers: {
@@ -123,9 +232,17 @@ async function postJson(path, body) {
   const responseBody = await response.json();
 
   render(responseBody, {
-    clearAccount: path === "/signout" || path === "/sessions/signout-all"
+    form,
+    fieldAliases,
+    clearAccount: path === "/signout" ||
+      path === "/sessions/signout-all" ||
+      (path === "/account/delete" && response.ok)
   });
-  return responseBody;
+  return {
+    ok: response.ok,
+    status: response.status,
+    body: responseBody
+  };
 }
 
 function formJson(form) {
@@ -150,16 +267,109 @@ function readCookie(name) {
   return null;
 }
 
-function render(value, { clearAccount = false } = {}) {
+function render(value, { clearAccount = false, form = null, fieldAliases = {} } = {}) {
   if (clearAccount || value.signedIn === false || Object.hasOwn(value, "user")) {
     renderAccount(value.user);
   }
 
-  const text = clearAccount && value.ok ? "" : statusText(value);
+  clearFormFeedback(form);
+
+  const fieldName = fieldAliases[value.field] ?? value.field;
+
+  if (value.error && form) {
+    renderFieldError(form, fieldName, value.error);
+  }
+
+  if (form && value.error) {
+    renderFormAlert(form, {
+      message: value.error,
+      tone: "error"
+    });
+    clearGlobalNotice();
+    return;
+  }
+
+  if (form && value.message) {
+    renderFormAlert(form, {
+      message: value.message,
+      tone: "info"
+    });
+    clearGlobalNotice();
+    return;
+  }
+
+  const text = clearAccount && value.ok && !value.message ? "" : statusText(value);
 
   notice.textContent = text;
   notice.hidden = text === "";
   notice.dataset.tone = value.error ? "error" : "info";
+}
+
+function clearGlobalNotice() {
+  notice.textContent = "";
+  notice.hidden = true;
+  notice.dataset.tone = "info";
+}
+
+function clearFormFeedback(form) {
+  if (!form) {
+    return;
+  }
+
+  for (const alert of form.querySelectorAll(".form-alert")) {
+    alert.remove();
+  }
+
+  for (const error of form.querySelectorAll(".field-error")) {
+    error.remove();
+  }
+
+  for (const control of form.querySelectorAll("[aria-invalid='true']")) {
+    control.removeAttribute("aria-invalid");
+    control.removeAttribute("aria-describedby");
+  }
+}
+
+function renderFieldError(form, fieldName, message) {
+  const control = Array.from(form.elements).find((element) => element.name === fieldName);
+  const label = control?.closest("label");
+
+  if (!control || !label) {
+    return false;
+  }
+
+  const error = document.createElement("p");
+
+  error.id = `${form.id}-${fieldName}-error`;
+  error.className = "field-error";
+  error.textContent = message;
+
+  control.setAttribute("aria-invalid", "true");
+  control.setAttribute("aria-describedby", error.id);
+  label.append(error);
+  return true;
+}
+
+function renderFormAlert(form, { message, tone }) {
+  const alert = document.createElement("div");
+  alert.className = "form-alert";
+  alert.dataset.tone = tone;
+  alert.setAttribute("role", "alert");
+  alert.setAttribute("tabindex", "-1");
+
+  const body = document.createElement("p");
+  body.className = "form-alert-message";
+  body.textContent = message;
+  alert.append(body);
+  const heading = form.querySelector("h2");
+
+  if (heading) {
+    heading.after(alert);
+  } else {
+    form.prepend(alert);
+  }
+
+  alert.focus();
 }
 
 function renderAccount(user) {

@@ -24,6 +24,7 @@ This repository is a chapter-by-chapter Node.js learning implementation inspired
 - Optional sign-out of all devices after password reset.
 - Email address update after identity verification and an email code sent to the new address.
 - Browser hardening for unsafe JSON requests with strict content-type and same-origin checks.
+- Account deletion after identity verification with related auth state cleanup.
 - Built-in `node:test` coverage for password hashing, sessions, rate limits, email-code TTL, SQLite persistence, and random-code formatting.
 
 The API uses a local SQLite database by default while keeping the auth services small enough to inspect.
@@ -201,6 +202,30 @@ curl -i -X POST http://localhost:3000/email-update/finish \
   -H 'origin: http://localhost:3000' \
   -H "x-csrf-token: $CSRF_TOKEN" \
   -d '{"email":"new-demo@example.com","code":"12345678"}'
+```
+
+Verify identity before deleting the account:
+
+```sh
+curl -i -X POST http://localhost:3000/account/delete/verify \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
+  -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
+  -d '{"password":"correct horse battery staple"}'
+```
+
+Delete the account:
+
+```sh
+curl -i -X POST http://localhost:3000/account/delete \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
+  -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
+  -d '{"confirmationEmail":"demo@example.com"}'
 ```
 
 ## References

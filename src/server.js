@@ -42,6 +42,7 @@ const passwordVerificationLimiter = new RateLimiter({
 const AUTH_COOKIE = "auth_session";
 const PASSWORD_UPDATE_COOKIE = "password_update_session";
 const EMAIL_UPDATE_COOKIE = "email_update_session";
+const ACCOUNT_DELETE_COOKIE = "account_delete_session";
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
 
 const server = createServer(async (request, response) => {
@@ -113,6 +114,14 @@ const server = createServer(async (request, response) => {
       return withAuth(request, response, handleEmailUpdateFinish);
     }
 
+    if (request.method === "POST" && url.pathname === "/account/delete/verify") {
+      return withAuth(request, response, handleAccountDeletionIdentityVerification);
+    }
+
+    if (request.method === "POST" && url.pathname === "/account/delete") {
+      return withAuth(request, response, handleAccountDeletion);
+    }
+
     if (request.method === "GET" && url.pathname === "/me") {
       return withAuth(request, response, handleMe);
     }
@@ -145,11 +154,11 @@ async function handleSignup(request, response) {
   const passwordError = validatePassword(body.password);
 
   if (emailError) {
-    return sendJson(response, 400, { error: emailError });
+    return sendJson(response, 400, { error: emailError, field: "email" });
   }
 
   if (passwordError) {
-    return sendJson(response, 400, { error: passwordError });
+    return sendJson(response, 400, { error: passwordError, field: "password" });
   }
 
   const passwordHash = await hashPassword(body.password);
@@ -162,7 +171,7 @@ async function handleSignup(request, response) {
       throw error;
     }
 
-    return sendJson(response, 400, { error: error.message });
+    return sendJson(response, 400, { error: error.message, field: "email" });
   }
 
   const token = await sessions.createAuthSession(user.id);
@@ -195,7 +204,7 @@ async function handleVerifyEmail(request, response, authSession) {
   });
 
   if (!result.ok) {
-    return sendJson(response, 400, { error: result.error });
+    return sendJson(response, 400, { error: result.error, field: "code" });
   }
 
   await store.markEmailVerified(user.id);
@@ -229,7 +238,7 @@ async function handleSignin(request, response) {
   const emailError = validateEmail(email);
 
   if (emailError) {
-    return sendJson(response, 400, { error: emailError });
+    return sendJson(response, 400, { error: emailError, field: "email" });
   }
 
   if (!(await passwordAttemptLimiter.consume(email))) {
@@ -245,13 +254,16 @@ async function handleSignin(request, response) {
     // when the account does not exist complicates rate limiting and still does
     // not fully eliminate timing inference; explicit errors are better UX here.
     // Reference: https://auth.pilcrowonpaper.com/passwords
-    return sendJson(response, 400, { error: "No account exists for this email address." });
+    return sendJson(response, 400, {
+      error: "No account exists for this email address.",
+      field: "email"
+    });
   }
 
   const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
 
   if (!validPassword) {
-    return sendJson(response, 400, { error: "Password is incorrect." });
+    return sendJson(response, 400, { error: "Password is incorrect.", field: "password" });
   }
 
   const token = await sessions.createAuthSession(user.id);
@@ -271,7 +283,7 @@ async function handlePasswordIdentityVerification(request, response, authSession
   const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
 
   if (!validPassword) {
-    return sendJson(response, 400, { error: "Password is incorrect." });
+    return sendJson(response, 400, { error: "Password is incorrect.", field: "password" });
   }
 
   const verificationToken = await sessions.createVerificationSession({
@@ -305,7 +317,12 @@ async function handlePasswordUpdate(request, response, authSession) {
   const passwordError = validatePassword(body.password);
 
   if (passwordError) {
-    return sendJson(response, 400, { error: passwordError }, clearPasswordUpdateCookie());
+    return sendJson(
+      response,
+      400,
+      { error: passwordError, field: "password" },
+      clearPasswordUpdateCookie()
+    );
   }
 
   await store.updateUserPassword(authSession.userId, await hashPassword(body.password));
@@ -328,7 +345,7 @@ async function handlePasswordResetStart(request, response) {
   const emailError = validateEmail(email);
 
   if (emailError) {
-    return sendJson(response, 400, { error: emailError });
+    return sendJson(response, 400, { error: emailError, field: "email" });
   }
 
   const result = await passwordResets.createPasswordResetCode(email);
@@ -350,11 +367,11 @@ async function handlePasswordResetFinish(request, response) {
   const passwordError = validatePassword(body.password);
 
   if (emailError) {
-    return sendJson(response, 400, { error: emailError });
+    return sendJson(response, 400, { error: emailError, field: "email" });
   }
 
   if (passwordError) {
-    return sendJson(response, 400, { error: passwordError });
+    return sendJson(response, 400, { error: passwordError, field: "password" });
   }
 
   const result = await passwordResets.verifyPasswordResetCode({
@@ -363,13 +380,13 @@ async function handlePasswordResetFinish(request, response) {
   });
 
   if (!result.ok) {
-    return sendJson(response, 400, { error: result.error });
+    return sendJson(response, 400, { error: result.error, field: "code" });
   }
 
   const user = await store.getUserByEmail(email);
 
   if (!user) {
-    return sendJson(response, 400, { error: "Password reset code expired." });
+    return sendJson(response, 400, { error: "Password reset code expired.", field: "code" });
   }
 
   await store.updateUserPassword(user.id, await hashPassword(body.password));
@@ -394,7 +411,7 @@ async function handleEmailUpdateIdentityVerification(request, response, authSess
   const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
 
   if (!validPassword) {
-    return sendJson(response, 400, { error: "Password is incorrect." });
+    return sendJson(response, 400, { error: "Password is incorrect.", field: "password" });
   }
 
   const verificationToken = await sessions.createVerificationSession({
@@ -428,13 +445,16 @@ async function handleEmailUpdateStart(request, response, authSession) {
   }
 
   if (emailError) {
-    return sendJson(response, 400, { error: emailError });
+    return sendJson(response, 400, { error: emailError, field: "email" });
   }
 
   const existingUser = await store.getUserByEmail(email);
 
   if (existingUser && existingUser.id !== authSession.userId) {
-    return sendJson(response, 400, { error: "Email address is already registered." });
+    return sendJson(response, 400, {
+      error: "Email address is already registered.",
+      field: "email"
+    });
   }
 
   await emailCodes.createEmailVerificationCode({
@@ -465,7 +485,7 @@ async function handleEmailUpdateFinish(request, response, authSession) {
   }
 
   if (emailError) {
-    return sendJson(response, 400, { error: emailError });
+    return sendJson(response, 400, { error: emailError, field: "email" });
   }
 
   const result = await emailCodes.verifyEmailCode({
@@ -475,7 +495,7 @@ async function handleEmailUpdateFinish(request, response, authSession) {
   });
 
   if (!result.ok) {
-    return sendJson(response, 400, { error: result.error });
+    return sendJson(response, 400, { error: result.error, field: "code" });
   }
 
   await sessions.consumeVerificationToken(verificationToken, {
@@ -487,7 +507,12 @@ async function handleEmailUpdateFinish(request, response, authSession) {
   try {
     await store.updateUserEmail(authSession.userId, email);
   } catch (error) {
-    return sendJson(response, 400, { error: error.message }, clearEmailUpdateCookie());
+    return sendJson(
+      response,
+      400,
+      { error: error.message, field: "email" },
+      clearEmailUpdateCookie()
+    );
   }
 
   return sendJson(
@@ -495,6 +520,78 @@ async function handleEmailUpdateFinish(request, response, authSession) {
     200,
     { user: publicUser(await store.getUserById(authSession.userId)) },
     clearEmailUpdateCookie()
+  );
+}
+
+async function handleAccountDeletionIdentityVerification(request, response, authSession) {
+  const body = await readJson(request);
+  const user = await store.getUserById(authSession.userId);
+
+  if (!(await passwordVerificationLimiter.consume(user.id))) {
+    return sendJson(response, 429, {
+      error: "Too many password verification attempts. Try again later."
+    });
+  }
+
+  const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
+
+  if (!validPassword) {
+    return sendJson(response, 400, { error: "Password is incorrect.", field: "password" });
+  }
+
+  const verificationToken = await sessions.createVerificationSession({
+    userId: user.id,
+    action: "account-delete",
+    authSessionId: authSession.id
+  });
+
+  return sendJson(
+    response,
+    200,
+    { ok: true, message: "Identity verified for account deletion." },
+    setAccountDeleteCookie(verificationToken)
+  );
+}
+
+async function handleAccountDeletion(request, response, authSession) {
+  const body = await readJson(request);
+  const user = await store.getUserById(authSession.userId);
+
+  if (!user) {
+    return sendJson(response, 401, { error: "Authentication required." }, clearAuthCookie());
+  }
+
+  if (normalizeEmail(body.confirmationEmail) !== user.email) {
+    return sendJson(response, 400, {
+      error: "Type the current account email to confirm deletion.",
+      field: "confirmationEmail"
+    });
+  }
+
+  const cookies = parseCookies(request.headers.cookie);
+  const verificationToken = cookies.get(ACCOUNT_DELETE_COOKIE);
+  const verified = await sessions.consumeVerificationToken(verificationToken, {
+    action: "account-delete",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+
+  if (!verified) {
+    return sendJson(response, 401, { error: "Account deletion verification required." });
+  }
+
+  await store.deleteUser(authSession.userId);
+
+  return sendJson(
+    response,
+    200,
+    { ok: true, message: "Account deleted." },
+    setCookieHeaders(
+      clearAuthCookie(),
+      clearPasswordUpdateCookie(),
+      clearEmailUpdateCookie(),
+      clearAccountDeleteCookie()
+    )
   );
 }
 
@@ -575,6 +672,27 @@ function setEmailUpdateCookie(token) {
 function clearEmailUpdateCookie() {
   return {
     "set-cookie": serializeCookie(EMAIL_UPDATE_COOKIE, "", { maxAge: 0 })
+  };
+}
+
+function setAccountDeleteCookie(token) {
+  return {
+    "set-cookie": serializeCookie(ACCOUNT_DELETE_COOKIE, token, {
+      maxAge: 60 * 10,
+      secure: process.env.NODE_ENV === "production"
+    })
+  };
+}
+
+function clearAccountDeleteCookie() {
+  return {
+    "set-cookie": serializeCookie(ACCOUNT_DELETE_COOKIE, "", { maxAge: 0 })
+  };
+}
+
+function setCookieHeaders(...headers) {
+  return {
+    "set-cookie": headers.flatMap((header) => header["set-cookie"])
   };
 }
 

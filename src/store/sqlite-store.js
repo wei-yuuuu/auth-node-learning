@@ -74,6 +74,34 @@ export class SQLiteStore {
     });
   }
 
+  async deleteUser(userId) {
+    const user = await this.getUserById(userId);
+
+    if (!user) {
+      return;
+    }
+
+    this.database.exec("BEGIN");
+
+    try {
+      this.deleteEmailVerificationCodesByUserStatement.run({
+        user_id: userId,
+        email: user.email
+      });
+      this.deletePasswordResetCodeStatement.run(user.email);
+      this.deleteRateLimitBucketsForUserStatement.run({
+        user_id: userId,
+        email: user.email
+      });
+      this.deleteSessionsByUserIdStatement.run(userId);
+      this.deleteUserByIdStatement.run(userId);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async insertSession(session) {
     this.insertSessionStatement.run(session);
   }
@@ -248,6 +276,7 @@ export class SQLiteStore {
     this.updateUserPasswordStatement = this.database.prepare(
       "UPDATE users SET password_hash = :password_hash WHERE id = :id"
     );
+    this.deleteUserByIdStatement = this.database.prepare("DELETE FROM users WHERE id = ?");
     this.insertSessionStatement = this.database.prepare(`
       INSERT INTO sessions (
         id,
@@ -275,6 +304,9 @@ export class SQLiteStore {
       "UPDATE sessions SET expires_at = :expires_at WHERE id = :id"
     );
     this.deleteSessionStatement = this.database.prepare("DELETE FROM sessions WHERE id = ?");
+    this.deleteSessionsByUserIdStatement = this.database.prepare(
+      "DELETE FROM sessions WHERE user_id = ?"
+    );
     this.deleteAuthSessionsByUserIdStatement = this.database.prepare(
       "DELETE FROM sessions WHERE user_id = ? AND kind = 'auth'"
     );
@@ -293,6 +325,11 @@ export class SQLiteStore {
     this.deleteEmailVerificationCodeStatement = this.database.prepare(`
       DELETE FROM email_verification_codes
       WHERE session_id = :session_id AND email = :email
+    `);
+    this.deleteEmailVerificationCodesByUserStatement = this.database.prepare(`
+      DELETE FROM email_verification_codes
+      WHERE email = :email
+         OR session_id IN (SELECT id FROM sessions WHERE user_id = :user_id)
     `);
     this.insertPasswordResetCodeStatement = this.database.prepare(`
       INSERT OR REPLACE INTO password_reset_codes (email, code, expires_at)
@@ -327,6 +364,9 @@ export class SQLiteStore {
     );
     this.deleteExpiredRateLimitBucketsStatement = this.database.prepare(
       "DELETE FROM rate_limit_buckets WHERE expires_at <= ?"
+    );
+    this.deleteRateLimitBucketsForUserStatement = this.database.prepare(
+      "DELETE FROM rate_limit_buckets WHERE key = :email OR key = :user_id"
     );
   }
 }

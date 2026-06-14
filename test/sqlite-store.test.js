@@ -161,3 +161,66 @@ test("SQLiteStore can delete other auth sessions while keeping the current one",
   assert.notEqual(await store.getSession("current-session"), null);
   assert.equal(await store.getSession("other-session"), null);
 });
+
+test("SQLiteStore can delete a user and related auth state", async () => {
+  const store = new SQLiteStore(":memory:");
+  const user = await store.createUser({
+    email: "delete@example.com",
+    passwordHash: "hash"
+  });
+
+  await store.insertSession({
+    id: "auth-session",
+    kind: "auth",
+    userId: user.id,
+    action: null,
+    authSessionId: null,
+    secretHashHex: "abc",
+    createdAt: 1,
+    expiresAt: 100
+  });
+  await store.insertSession({
+    id: "verification-session",
+    kind: "verification",
+    userId: user.id,
+    action: "account-delete",
+    authSessionId: "auth-session",
+    secretHashHex: "abc",
+    createdAt: 1,
+    expiresAt: 100
+  });
+  await store.insertEmailVerificationCode({
+    sessionId: "verification-session",
+    email: "new-delete@example.com",
+    code: "12345678",
+    expiresAt: 100
+  });
+  await store.insertPasswordResetCode({
+    email: user.email,
+    code: "87654321",
+    expiresAt: 100
+  });
+  await store.setRateLimitBucket("password-signin", user.email, {
+    tokens: 0,
+    updatedAt: 1,
+    expiresAt: 100
+  });
+  await store.setRateLimitBucket("password-verification", user.id, {
+    tokens: 0,
+    updatedAt: 1,
+    expiresAt: 100
+  });
+
+  await store.deleteUser(user.id);
+
+  assert.equal(await store.getUserById(user.id), null);
+  assert.equal(await store.getSession("auth-session"), null);
+  assert.equal(await store.getSession("verification-session"), null);
+  assert.equal(
+    await store.getEmailVerificationCode("verification-session", "new-delete@example.com"),
+    null
+  );
+  assert.equal(await store.getPasswordResetCode(user.email), null);
+  assert.equal(await store.getRateLimitBucket("password-signin", user.email), null);
+  assert.equal(await store.getRateLimitBucket("password-verification", user.id), null);
+});

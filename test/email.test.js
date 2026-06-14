@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeEmail, validateEmail } from "../src/store/email.js";
 
-test("normalizeEmail trims email addresses without changing case", () => {
-  assert.equal(normalizeEmail(" Demo.User+Test@Example.COM "), "Demo.User+Test@Example.COM");
+test("normalizeEmail preserves email input without semantic rewrites", () => {
+  assert.equal(normalizeEmail(" Demo.User+Test@Example.COM "), " Demo.User+Test@Example.COM ");
 });
 
 test("validateEmail accepts the current educational email policy", () => {
@@ -29,6 +29,10 @@ test("validateEmail rejects unsupported username and domain characters", () => {
   );
   assert.equal(
     validateEmail("Demo@example.com"),
+    "Email username can only use lowercase letters, numbers, periods, plus signs, underscores, and hyphens."
+  );
+  assert.equal(
+    validateEmail(" demo@example.com "),
     "Email username can only use lowercase letters, numbers, periods, plus signs, underscores, and hyphens."
   );
   assert.equal(

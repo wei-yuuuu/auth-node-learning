@@ -47,7 +47,7 @@ Columns:
 - `id`: Public session ID from the `id.secret` token.
 - `kind`: `auth` for signed-in sessions, `verification` for short-lived identity verification sessions.
 - `user_id`: Owner user ID.
-- `action`: Purpose name for verification sessions, such as `password-update` or `email-update`.
+- `action`: Purpose name for verification sessions, such as `password-update`, `email-update`, or `account-delete`.
 - `auth_session_id`: Auth session that a verification session is tied to.
 - `secret_hash_hex`: SHA-256 hash of the session secret. The raw secret is never stored.
 - `created_at`: Unix milliseconds.

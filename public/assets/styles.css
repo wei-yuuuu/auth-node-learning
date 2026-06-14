@@ -11,6 +11,8 @@
   --secondary-hover: #f0f4ff;
   --neutral: #555b63;
   --neutral-hover: #3f454d;
+  --success: #16833a;
+  --success-bg: #f0fff4;
   --danger: #c0362c;
   --danger-hover: #9f2c24;
 }
@@ -344,6 +346,53 @@ input {
   background: #fff;
 }
 
+input[aria-invalid="true"] {
+  border-color: var(--danger);
+  outline-color: var(--danger);
+}
+
+.field-error {
+  margin: 2px 0 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.form-alert {
+  border: 1px solid var(--border);
+  border-left: 4px solid #555b63;
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #555b63;
+}
+
+.form-alert:focus {
+  outline: 2px solid #1f1f1c;
+  outline-offset: 2px;
+}
+
+.form-alert[data-tone="info"] {
+  border-left-color: var(--success);
+  background: var(--success-bg);
+  color: #11602d;
+}
+
+.form-alert[data-tone="error"] {
+  border-left-color: var(--danger);
+  background: #fff7f6;
+  color: var(--danger);
+}
+
+.form-alert-message {
+  margin: 0;
+}
+
+.form-alert-message {
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
 button {
   border: 1px solid transparent;
   border-radius: 4px;
@@ -397,16 +446,21 @@ button.danger:hover {
 }
 
 .notice {
-  max-width: 220px;
-  overflow: hidden;
+  margin: 0 0 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid #555b63;
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: #fff;
   color: #555b63;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
 }
 
 .notice[data-tone="error"] {
+  border-left-color: var(--danger);
+  background: #fff7f6;
   color: var(--danger);
 }
 

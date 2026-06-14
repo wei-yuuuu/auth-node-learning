@@ -59,11 +59,14 @@ This project can grow in chapters so each auth concept stays teachable and revie
 - Invalid JSON request bodies return `400` instead of a generic server error.
 - Cookies remain `HttpOnly`, `SameSite=Lax`, path-scoped to `/`, and `Secure` in production.
 
-## [ ] Chapter 6: Account Deletion
+## [x] Chapter 6: Account Deletion
 
 - Identity verification before deletion.
 - Server-side session invalidation.
 - Background cleanup behavior.
+- `/account/delete/verify` verifies the current password and creates a single-use verification session.
+- `/account/delete` requires typing the current account email, then consumes that verification session before deleting the account.
+- Account deletion clears user-owned auth sessions, verification sessions, email codes, password reset codes, and related rate-limit buckets.
 
 ## [ ] Chapter 7: Passwordless and Passkeys
 

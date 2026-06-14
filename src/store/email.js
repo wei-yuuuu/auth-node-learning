@@ -2,12 +2,16 @@ const MAX_EMAIL_LENGTH = 100;
 const EMAIL_USERNAME_PATTERN = /^[a-z0-9.+_-]+$/;
 const EMAIL_DOMAIN_PATTERN = /^[a-z0-9.-]+$/;
 
+// Pilcrow: "I strongly discourage silently modifying the user's input."
+// Reference: https://auth.pilcrowonpaper.com/email-addresses
+// Do not trim, lowercase, strip plus aliases, or rewrite the local part, which
+// can be case-sensitive depending on the mail server.
 export function normalizeEmail(email) {
   if (typeof email !== "string") {
     return "";
   }
 
-  return email.trim();
+  return email;
 }
 
 export function validateEmail(email) {
