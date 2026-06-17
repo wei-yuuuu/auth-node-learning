@@ -23,6 +23,7 @@
 
 body {
   margin: 0;
+  padding-bottom: 44px;
 }
 
 .site-header {
@@ -45,6 +46,48 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.header-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.source-credit {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 20;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 6px 5px 9px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #60656d;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgba(31, 31, 28, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.source-credit:focus-visible {
+  outline: 3px solid #9db8ff;
+  outline-offset: 3px;
+}
+
+.source-credit img {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  object-fit: cover;
 }
 
 .site-header h1 {
