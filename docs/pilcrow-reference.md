@@ -108,6 +108,7 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
   - `test/rate-limit.test.js`, `test/session.test.js`, and `test/email-code-service.test.js` use mock timers for time-dependent auth behavior.
   - `package.json` includes `npm run test:random` for Node 24.16 test-order randomization with a fixed seed.
   - `src/auth/password-service.js` uses native `node:crypto` Argon2id.
+  - `src/auth/webauthn.js` uses `crypto.verify()` for ES256, RS256, and EdDSA passkey signatures.
 
 ### Cookies
 
@@ -141,37 +142,111 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
   - Finishing deletion consumes that verification session before deleting the user.
   - Deletion clears sessions, email verification codes, password reset codes, and user/email keyed rate-limit buckets.
 
+### Passkeys And WebAuthn
+
+- Reference: [Passkeys](https://auth.pilcrowonpaper.com/passkeys), [WebAuthn](https://auth.pilcrowonpaper.com/webauthn), [Passkey registration](https://auth.pilcrowonpaper.com/passkey-registration), [Passkey authentication](https://auth.pilcrowonpaper.com/passkey-authentication), [WebAuthn authenticator data](https://auth.pilcrowonpaper.com/webauthn-authenticator-data), and [WebAuthn client data](https://auth.pilcrowonpaper.com/webauthn-client-data).
+- Implemented in: `src/auth/webauthn.js`, `src/server.js`, `src/store/sqlite-store.js`, and `public/assets/app.js`.
+- Flow:
+
+```mermaid
+sequenceDiagram
+  participant Client as Client UI
+  participant Server as Node server
+  participant WebAuthn as Browser WebAuthn API
+  participant DB as SQLite
+
+  Client->>Server: Sign in with email + password
+  Server->>DB: Create sessions.kind=auth
+  Server-->>Client: Set auth_session cookie
+
+  rect rgb(245, 247, 250)
+    note over Client,DB: Register passkey
+    Client->>Server: Verify current password for passkey management
+    Server->>DB: Create sessions.action=passkey-manage
+    Server-->>Client: Set passkey_manage_session cookie
+    Client->>Server: Request registration options
+    Server-->>Client: rpId, user.id, challenge="", pubKeyCredParams, userVerification=required
+    Client->>WebAuthn: navigator.credentials.create({ publicKey })
+    WebAuthn-->>Client: rawId, clientDataJSON, authenticatorData, publicKey, publicKeyAlgorithm
+    Client->>Server: Finish registration
+    Server->>Server: Validate webauthn.create, origin, rpIdHash, flags, rawId, public key
+    Server->>DB: Insert passkeys row with credential_id, public_key_der, algorithm, sign_count
+    Server-->>Client: Passkey registered
+  end
+
+  rect rgb(250, 247, 242)
+    note over Client,DB: Sign in with passkey
+    Client->>Server: Request sign-in options
+    Server->>DB: Store sha256(challenge) in passkey_signin_attempts
+    Server-->>Client: challenge, rpId, userVerification=required
+    Client->>WebAuthn: navigator.credentials.get({ publicKey })
+    WebAuthn-->>Client: rawId, clientDataJSON, authenticatorData, signature, userHandle
+    Client->>Server: Finish passkey sign-in
+    Server->>DB: Load passkey by base64url(rawId)
+    Server->>DB: Consume challenge hash
+    Server->>Server: Validate webauthn.get, origin, rpIdHash, flags, challenge
+    Server->>Server: crypto.verify(signature)
+    Server->>DB: Create sessions.kind=auth
+    Server-->>Client: Set auth_session cookie
+  end
+
+  rect rgb(249, 244, 244)
+    note over Client,DB: Delete passkey
+    Client->>Server: Delete selected credential_id
+    Server->>DB: Consume passkey_manage_session
+    Server->>DB: Delete passkeys row by credential_id
+    Server-->>Client: Passkey deleted
+  end
+```
+
+- Code choices:
+  - Passkeys are treated as discoverable WebAuthn credentials with user verification required.
+  - Pilcrow: "Users should be allowed to register multiple passkeys"; this app allows up to 10.
+  - Pilcrow: "The user's identity must be verified before they can register or delete passkeys."
+  - The identity check creates a short-lived `passkey-manage` verification session tied to the current auth session.
+  - Registration uses `navigator.credentials.create()` with `residentKey: "required"`, `requireResidentKey: true`, `userVerification: "required"`, and `attestation: "none"`.
+  - Registration includes `credentialProtectionPolicy: "userVerificationRequired"` and `enforceCredentialProtectionPolicy: false`.
+  - The browser UI distinguishes WebAuthn `NotAllowedError` from `NotSupportedError`: cancellation or timeout is different from an authenticator that cannot satisfy requirements such as supported algorithms or user verification.
+  - Registration sends the WebAuthn credential ID, `getPublicKey()` DER SubjectPublicKeyInfo bytes, `getPublicKeyAlgorithm()`, and `getAuthenticatorData()` to the server.
+  - Pilcrow notes that `getPublicKey()` and `getPublicKeyAlgorithm()` let the server store a DER SubjectPublicKeyInfo public key and the COSE algorithm ID instead of parsing the COSE public key from authenticator data.
+  - This project follows that route, so it does not define COSE key-map labels like `1` (`kty`), `3` (`alg`), `-1` (`crv`), `-2` (`x` or RSA exponent), and `-3` (`y`).
+  - The server validates the client data type, browser origin, cross-origin flag, relying-party ID hash, user presence flag, user verification flag, backup flag consistency, attested credential data, credential ID match, and supported public key type.
+  - Supported algorithms match the article's registration guidance: `-7` ES256 P-256, `-257` RS256, and optional `-8` EdDSA.
+  - RS256 keys must use at least 2048 bits and public exponent `65537`.
+  - Sign-in uses `navigator.credentials.get()` with `userVerification: "required"` and discoverable credentials.
+  - Sign-in challenges are 32 random bytes, stored only as SHA-256 hashes, expire after 5 minutes, and are deleted after an attempt.
+  - The server validates `webauthn.get` client data, consumes the challenge, verifies the authenticator data flags and relying-party ID hash, then verifies the signature over authenticator data plus the SHA-256 client data hash.
+  - Pilcrow describes the authenticator data signature counter as a 32-bit unsigned integer, and the passwordless example parses it as `SignCount`.
+  - This project stores the signature counter and updates it only when the new value is greater than the stored value. It does not block sign-in on counter mismatch.
+  - The sign-in email input includes `webauthn` autocomplete support, and the UI starts conditional mediation when the browser supports it.
+
 ## Example Repository Notes
 
 - Reference: [basic-example.auth.pilcrowonpaper.com source](https://github.com/pilcrowonpaper/basic-example.auth.pilcrowonpaper.com), whose README lists email verification, password authentication, password update/reset, account deletion, and basic rate limiting.
-- This project follows the same broad learning path: password auth, email verification, sessions, rate limiting, password maintenance, email address updates, browser hardening, and account deletion.
+- This project follows the same broad learning path: password auth, email verification, sessions, rate limiting, password maintenance, email address updates, browser hardening, account deletion, and passkeys.
 
 ## Passwordless Example Notes
 
 - Reference: [passwordless-example.auth.pilcrowonpaper.com source](https://github.com/pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com), whose README describes email code sign-in, passkey authentication, passkey registration/deletion, email address update, account deletion, SQLite storage, basic rate limiting, and local development emails printed to stdout.
 - Integration approach:
   - Keep the existing `sessions` table and auth-session validation as the shared signed-in state.
-  - Add passwordless-specific tables instead of replacing password auth tables.
-  - Reuse SQLite-backed `rate_limit_buckets` for email-code sign-in and passkey challenge attempts.
-  - Reuse existing cleanup infrastructure for expired passwordless sessions and WebAuthn challenges.
+  - Add passkey-specific tables instead of replacing password auth tables.
+  - Reuse existing cleanup infrastructure for expired WebAuthn challenges.
   - Reuse verification sessions before passkey registration and deletion.
-  - Restore a small browser HTML UI because WebAuthn passkeys require browser APIs.
-- Planned tables based on the reference schema:
+  - Keep a small browser HTML UI because WebAuthn passkeys require browser APIs.
+- Implemented tables based on the reference schema:
   - `passkeys` for user passkey records.
   - `passkey_signin_attempts` for short-lived WebAuthn sign-in challenges.
-  - `email_code_signin_sessions` for email-code sign-in.
-  - `passkey_registration_sessions` for signed-in passkey creation.
-  - `passkey_deletion_sessions` for signed-in passkey deletion.
-- Planned WebAuthn checks based on the reference implementation:
+- Implemented WebAuthn checks based on the reference implementation:
   - Require user presence and user verification.
   - Validate relying party ID hash.
   - Validate browser origin.
   - Reject cross-origin client data.
   - Verify the stored challenge.
   - Check backup state and attested credential state according to registration versus authentication flow.
-- Planned browser UI:
+- Browser UI:
   - Minimal HTML, CSS, and browser JavaScript.
   - Password/email-code pages can call existing JSON actions.
-  - Passkey registration will call `navigator.credentials.create()`.
-  - Passkey sign-in and verification will call `navigator.credentials.get()`.
+  - Passkey registration calls `navigator.credentials.create()`.
+  - Passkey sign-in calls `navigator.credentials.get()`.
   - Auth session cookies stay `HttpOnly`.

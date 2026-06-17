@@ -67,13 +67,16 @@
           <h2><span>3</span>Sign in</h2>
           <label>
             Email
-            <input name="email" type="email" autocomplete="email" required>
+            <input name="email" type="email" autocomplete="username webauthn" required>
           </label>
           <label>
             Password
             <input name="password" type="password" autocomplete="current-password" required>
           </label>
-          <button class="primary" type="submit">Sign in</button>
+          <div class="form-actions">
+            <button class="primary" type="submit">Sign in</button>
+            <button class="secondary" id="passkey-signin-button" type="button">Sign in with passkey</button>
+          </div>
         </form>
 
         <form id="password-change-form" class="step">
@@ -123,6 +126,36 @@
             Sign out all devices
           </label>
           <button class="danger" type="submit">Reset password</button>
+        </form>
+      </section>
+
+      <section class="flow flow-three">
+        <form id="passkey-verify-form" class="step">
+          <h2><span>1</span>Verify identity</h2>
+          <label>
+            Current password
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="secondary" type="submit">Verify for passkeys</button>
+        </form>
+
+        <form id="passkey-register-form" class="step">
+          <h2><span>2</span>Register passkey</h2>
+          <label>
+            Passkey name
+            <input name="name" autocomplete="off" maxlength="60" placeholder="MacBook Touch ID" required>
+          </label>
+          <button class="primary" type="submit">Register passkey</button>
+        </form>
+
+        <form id="passkey-delete-form" class="step">
+          <h2><span>3</span>Manage passkeys</h2>
+          <div class="passkey-list" id="passkey-list"></div>
+          <label>
+            Passkey
+            <select name="credentialId" id="passkey-select" required></select>
+          </label>
+          <button class="danger" type="submit">Delete passkey</button>
         </form>
       </section>
 

@@ -68,43 +68,50 @@ This project can grow in chapters so each auth concept stays teachable and revie
 - `/account/delete` requires typing the current account email, then consumes that verification session before deleting the account.
 - Account deletion clears user-owned auth sessions, verification sessions, email codes, password reset codes, and related rate-limit buckets.
 
-## [ ] Chapter 7: Passwordless and Passkeys
+## [x] Chapter 7: Passwordless and Passkeys
 
 Reference: [pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com](https://github.com/pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com).
 
-Goals:
+Implemented:
 
-- Add email code sign-in as a passwordless sign-in path.
 - Add passkey registration for signed-in users after identity verification.
 - Add passkey sign-in using stored WebAuthn credential IDs and public keys.
 - Add passkey deletion behind identity verification.
 - Add browser HTML pages for registration, sign-in, account management, passkey registration, and passkey deletion.
 - Keep passkey flows integrated with existing server-side auth sessions.
-- Reuse SQLite-backed rate limits for email-code sign-in and passkey attempts.
-- Reuse cleanup infrastructure for expired WebAuthn challenges and passwordless sessions.
+- Reuse cleanup infrastructure for expired WebAuthn challenges.
+- Support browser passkey autofill with conditional mediation when available.
 
-Storage plan:
+Storage:
 
-- `passkeys`: user-owned credential records with WebAuthn credential ID, authenticator ID, COSE public key, display name, and creation time.
+- `passkeys`: user-owned credential records with WebAuthn credential ID, authenticator ID, SubjectPublicKeyInfo public key bytes, signature algorithm, display name, signature counter, and creation time.
 - `passkey_signin_attempts`: short-lived WebAuthn challenges for unauthenticated sign-in attempts.
-- `email_code_signin_sessions`: short-lived email-code sign-in state bound to a user and secret.
-- `passkey_registration_sessions`: signed-in registration state bound to an auth session and identity verification.
-- `passkey_deletion_sessions`: signed-in deletion state bound to an auth session, passkey ID, and identity verification.
-- Existing `sessions`, `rate_limit_buckets`, and cleanup paths stay shared.
+- Existing `sessions` stores the short-lived `passkey-manage` verification session for passkey registration and deletion.
+- Existing cleanup paths delete expired passkey sign-in attempts.
 
-WebAuthn validation plan:
+WebAuthn validation:
 
 - Require user presence and user verification.
 - Verify relying party ID hash and browser origin.
 - Reject cross-origin client data.
 - Verify the stored challenge.
-- Store passkey public keys and credential IDs as SQLite BLOB values.
+- Validate ES256 P-256, RS256 2048-bit-plus RSA exponent 65537, and EdDSA Ed25519 public keys.
+- Use `getPublicKey()` and `getPublicKeyAlgorithm()` so the server validates DER SubjectPublicKeyInfo bytes without parsing COSE key maps.
+- Store passkey public keys as SQLite BLOB values and credential IDs as base64url text.
 - Reject invalid backup state and unexpected attested credential state depending on registration versus authentication.
 
-Browser UI plan:
+Browser UI:
 
 - Use minimal HTML, CSS, and browser JavaScript.
 - Call server JSON actions with `fetch()`.
 - Use `navigator.credentials.create()` for passkey registration.
-- Use `navigator.credentials.get()` for passkey sign-in and identity verification.
+- Use `navigator.credentials.get()` for passkey sign-in.
 - Keep cookies `HttpOnly`; browser JavaScript should not read auth session tokens.
+
+## [ ] Chapter 8: Email Code Sign-In
+
+- Add email code sign-in as another passwordless path.
+- Create a short-lived sign-in session for each email-code attempt.
+- Generate an 8-character code with at least 40 bits of entropy.
+- Hash the email sign-in code with Argon2id or bcrypt before storing it.
+- Rate-limit verification at 1 attempt per minute per user with a small burst capacity.

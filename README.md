@@ -25,11 +25,12 @@ This repository is a chapter-by-chapter Node.js learning implementation inspired
 - Email address update after identity verification and an email code sent to the new address.
 - Browser hardening for unsafe JSON requests with strict content-type and same-origin checks.
 - Account deletion after identity verification with related auth state cleanup.
-- Built-in `node:test` coverage for password hashing, sessions, rate limits, email-code TTL, SQLite persistence, and random-code formatting.
+- Passkey registration, passkey sign-in, and passkey deletion with browser WebAuthn APIs.
+- Built-in `node:test` coverage for password hashing, sessions, rate limits, email-code TTL, WebAuthn validation, SQLite persistence, and random-code formatting.
 
 The API uses a local SQLite database by default while keeping the auth services small enough to inspect.
 
-The current code includes a small browser HTML UI for sign-up, sign-in, email verification, email update, and session controls. Passkey support is planned for a later chapter and will use browser WebAuthn APIs.
+The current code includes a small browser HTML UI for sign-up, sign-in, email verification, passkey registration/sign-in/deletion, email update, account deletion, and session controls.
 
 ## Requirements
 
@@ -75,6 +76,8 @@ npm run test:random
 This project uses the native `node:crypto` Argon2 API added in Node 24. The API is currently a release candidate, which makes it useful for learning the salt, parameter, and derived-key pieces directly. A production service may still prefer a mature password-hashing package until the native API becomes stable.
 
 The project also uses `node:sqlite`, which is currently a release candidate in Node 24. If Node prints an SQLite experimental warning, that is expected.
+
+Passkey signature verification uses Node's built-in `crypto.verify()` with WebAuthn public keys stored as DER SubjectPublicKeyInfo bytes.
 
 The test suite uses `node:test` mock timers for rate-limit refill, rolling session expiration, email-code TTL, and `AbortSignal.timeout()`.
 
@@ -228,6 +231,21 @@ curl -i -X POST http://localhost:3000/account/delete \
   -d '{"confirmationEmail":"demo@example.com"}'
 ```
 
+Passkeys require browser WebAuthn APIs, so the normal way to try them is through the browser UI:
+
+```text
+http://localhost:3000
+```
+
+The flow is:
+
+- Sign in with a password.
+- Verify identity in the "Passkeys" section.
+- Register a passkey with `navigator.credentials.create()`.
+- Sign out.
+- Sign back in with the "Sign in with passkey" button or browser passkey autofill.
+- Verify identity again before deleting a passkey.
+
 ## References
 
 See [docs/pilcrow-reference.md](docs/pilcrow-reference.md) for the article sections mapped to the current implementation.
@@ -236,20 +254,19 @@ See [docs/chapter-plan.md](docs/chapter-plan.md) for the suggested chapter order
 
 See [docs/sqlite-cheatsheet.md](docs/sqlite-cheatsheet.md) for copy-paste SQLite queries for each table.
 
-## Planned Passwordless Support
-
-Passkey and passwordless auth are planned for a later chapter and should integrate with the existing session, SQLite, rate-limit, and identity-verification services instead of becoming a separate auth stack.
-
-Reference implementation:
+## Passwordless Reference
 
 - [pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com](https://github.com/pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com)
 
-Planned scope:
+Implemented scope:
 
-- Email code sign-in.
 - Passkey registration.
 - Passkey sign-in.
 - Passkey deletion behind identity verification.
 - WebAuthn challenge storage and cleanup.
-- SQLite tables for passkeys, passkey sign-in attempts, and passkey registration/deletion sessions.
+- SQLite tables for passkeys and passkey sign-in attempts.
 - Browser HTML pages that call the WebAuthn APIs and existing JSON actions.
+
+Planned later:
+
+- Email code sign-in as an additional passwordless sign-in path.

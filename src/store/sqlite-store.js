@@ -93,6 +93,7 @@ export class SQLiteStore {
         user_id: userId,
         email: user.email
       });
+      this.deletePasskeysByUserIdStatement.run(userId);
       this.deleteSessionsByUserIdStatement.run(userId);
       this.deleteUserByIdStatement.run(userId);
       this.database.exec("COMMIT");
@@ -175,6 +176,71 @@ export class SQLiteStore {
     this.deletePasswordResetCodeStatement.run(normalizeEmail(email));
   }
 
+  async insertPasskey(record) {
+    try {
+      this.insertPasskeyStatement.run({
+        credential_id: record.credentialId,
+        user_id: record.userId,
+        public_key_der: record.publicKeyDer,
+        algorithm: record.algorithm,
+        authenticator_id: record.authenticatorId,
+        name: record.name,
+        sign_count: record.signCount,
+        created_at: record.createdAt
+      });
+    } catch (error) {
+      if (error.code === "ERR_SQLITE_ERROR") {
+        throw new Error("Passkey is already registered.");
+      }
+
+      throw error;
+    }
+  }
+
+  async getPasskeyByCredentialId(credentialId) {
+    return rowToPasskey(this.getPasskeyByCredentialIdStatement.get(credentialId));
+  }
+
+  async listPasskeysByUserId(userId) {
+    return this.listPasskeysByUserIdStatement.all(userId).map(rowToPasskey);
+  }
+
+  async countPasskeysByUserId(userId) {
+    const row = this.countPasskeysByUserIdStatement.get(userId);
+    return row.count;
+  }
+
+  async updatePasskeySignCount(credentialId, signCount) {
+    this.updatePasskeySignCountStatement.run({
+      credential_id: credentialId,
+      sign_count: signCount
+    });
+  }
+
+  async deletePasskeyByCredentialId(userId, credentialId) {
+    this.deletePasskeyByCredentialIdStatement.run({
+      user_id: userId,
+      credential_id: credentialId
+    });
+  }
+
+  async insertPasskeySigninAttempt(record) {
+    this.insertPasskeySigninAttemptStatement.run({
+      challenge_hash_hex: record.challengeHashHex,
+      expires_at: record.expiresAt
+    });
+  }
+
+  async getPasskeySigninAttempt(challengeHashHex) {
+    return rowToPasskeySigninAttempt(
+      this.getPasskeySigninAttemptStatement.get(challengeHashHex)
+    );
+  }
+
+  async deletePasskeySigninAttempt(challengeHashHex) {
+    this.deletePasskeySigninAttemptStatement.run(challengeHashHex);
+  }
+
   async getRateLimitBucket(name, key) {
     return rowToRateLimitBucket(
       this.getRateLimitBucketStatement.get({
@@ -199,12 +265,14 @@ export class SQLiteStore {
     const emailVerificationCodes = this.deleteExpiredEmailVerificationCodesStatement.run(now).changes;
     const passwordResetCodes = this.deleteExpiredPasswordResetCodesStatement.run(now).changes;
     const rateLimitBuckets = this.deleteExpiredRateLimitBucketsStatement.run(now).changes;
+    const passkeySigninAttempts = this.deleteExpiredPasskeySigninAttemptsStatement.run(now).changes;
 
     return {
       sessions,
       emailVerificationCodes,
       passwordResetCodes,
-      rateLimitBuckets
+      rateLimitBuckets,
+      passkeySigninAttempts
     };
   }
 
@@ -245,6 +313,29 @@ export class SQLiteStore {
         code TEXT NOT NULL,
         expires_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS passkeys (
+        credential_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        public_key_der BLOB NOT NULL,
+        algorithm INTEGER NOT NULL,
+        authenticator_id TEXT,
+        name TEXT NOT NULL,
+        sign_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS passkeys_user_id_idx
+        ON passkeys (user_id);
+
+      CREATE TABLE IF NOT EXISTS passkey_signin_attempts (
+        challenge_hash_hex TEXT PRIMARY KEY,
+        expires_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS passkey_signin_attempts_expires_at_idx
+        ON passkey_signin_attempts (expires_at);
 
       CREATE TABLE IF NOT EXISTS rate_limit_buckets (
         name TEXT NOT NULL,
@@ -341,6 +432,61 @@ export class SQLiteStore {
     this.deletePasswordResetCodeStatement = this.database.prepare(
       "DELETE FROM password_reset_codes WHERE email = ?"
     );
+    this.insertPasskeyStatement = this.database.prepare(`
+      INSERT INTO passkeys (
+        credential_id,
+        user_id,
+        public_key_der,
+        algorithm,
+        authenticator_id,
+        name,
+        sign_count,
+        created_at
+      )
+      VALUES (
+        :credential_id,
+        :user_id,
+        :public_key_der,
+        :algorithm,
+        :authenticator_id,
+        :name,
+        :sign_count,
+        :created_at
+      )
+    `);
+    this.getPasskeyByCredentialIdStatement = this.database.prepare(
+      "SELECT * FROM passkeys WHERE credential_id = ?"
+    );
+    this.listPasskeysByUserIdStatement = this.database.prepare(`
+      SELECT * FROM passkeys
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `);
+    this.countPasskeysByUserIdStatement = this.database.prepare(
+      "SELECT count(*) AS count FROM passkeys WHERE user_id = ?"
+    );
+    this.updatePasskeySignCountStatement = this.database.prepare(`
+      UPDATE passkeys
+      SET sign_count = :sign_count
+      WHERE credential_id = :credential_id
+    `);
+    this.deletePasskeyByCredentialIdStatement = this.database.prepare(`
+      DELETE FROM passkeys
+      WHERE user_id = :user_id AND credential_id = :credential_id
+    `);
+    this.deletePasskeysByUserIdStatement = this.database.prepare(
+      "DELETE FROM passkeys WHERE user_id = ?"
+    );
+    this.insertPasskeySigninAttemptStatement = this.database.prepare(`
+      INSERT OR REPLACE INTO passkey_signin_attempts (challenge_hash_hex, expires_at)
+      VALUES (:challenge_hash_hex, :expires_at)
+    `);
+    this.getPasskeySigninAttemptStatement = this.database.prepare(
+      "SELECT * FROM passkey_signin_attempts WHERE challenge_hash_hex = ?"
+    );
+    this.deletePasskeySigninAttemptStatement = this.database.prepare(
+      "DELETE FROM passkey_signin_attempts WHERE challenge_hash_hex = ?"
+    );
     this.getRateLimitBucketStatement = this.database.prepare(`
       SELECT * FROM rate_limit_buckets
       WHERE name = :name AND key = :key
@@ -364,6 +510,9 @@ export class SQLiteStore {
     );
     this.deleteExpiredRateLimitBucketsStatement = this.database.prepare(
       "DELETE FROM rate_limit_buckets WHERE expires_at <= ?"
+    );
+    this.deleteExpiredPasskeySigninAttemptsStatement = this.database.prepare(
+      "DELETE FROM passkey_signin_attempts WHERE expires_at <= ?"
     );
     this.deleteRateLimitBucketsForUserStatement = this.database.prepare(
       "DELETE FROM rate_limit_buckets WHERE key = :email OR key = :user_id"
@@ -423,6 +572,34 @@ function rowToPasswordResetCode(row) {
   return {
     email: row.email,
     code: row.code,
+    expiresAt: row.expires_at
+  };
+}
+
+function rowToPasskey(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    credentialId: row.credential_id,
+    userId: String(row.user_id),
+    publicKeyDer: Buffer.from(row.public_key_der),
+    algorithm: row.algorithm,
+    authenticatorId: row.authenticator_id,
+    name: row.name,
+    signCount: row.sign_count,
+    createdAt: row.created_at
+  };
+}
+
+function rowToPasskeySigninAttempt(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    challengeHashHex: row.challenge_hash_hex,
     expiresAt: row.expires_at
   };
 }

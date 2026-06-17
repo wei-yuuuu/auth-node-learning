@@ -1,10 +1,6 @@
 # SQLite Cheatsheet
 
-Run commands from the project root:
-
-```sh
-cd "/Users/weichen/Documents/auth-node-learning"
-```
+Run commands from the project root, where `package.json` lives.
 
 Use `-header -column` to make output readable:
 
@@ -29,7 +25,7 @@ sqlite3 -header -column auth-node.sqlite "SELECT id, email, CASE email_verified 
 Columns:
 
 - `id`: Internal user ID.
-- `email`: Trimmed email address that passed the account-identifier rules.
+- `email`: Email address that passed the account-identifier rules. The app does not silently trim, lowercase, or rewrite it.
 - `password_hash`: Encoded native Node Argon2id hash. Usually omit it from casual queries.
 - `email_verified`: `1` means verified, `0` means not verified.
 - `created_at`: Unix milliseconds.
@@ -47,7 +43,7 @@ Columns:
 - `id`: Public session ID from the `id.secret` token.
 - `kind`: `auth` for signed-in sessions, `verification` for short-lived identity verification sessions.
 - `user_id`: Owner user ID.
-- `action`: Purpose name for verification sessions, such as `password-update`, `email-update`, or `account-delete`.
+- `action`: Purpose name for verification sessions, such as `password-update`, `email-update`, `account-delete`, or `passkey-manage`.
 - `auth_session_id`: Auth session that a verification session is tied to.
 - `secret_hash_hex`: SHA-256 hash of the session secret. The raw secret is never stored.
 - `created_at`: Unix milliseconds.
@@ -82,6 +78,38 @@ Columns:
 - `code`: 8-digit numeric reset code printed by the development email sender.
 - `expires_at`: Unix milliseconds.
 
+## passkeys
+
+Registered WebAuthn passkeys.
+
+```sh
+sqlite3 -header -column auth-node.sqlite "SELECT credential_id, user_id, algorithm, name, authenticator_id, sign_count, datetime(created_at / 1000, 'unixepoch', 'localtime') AS created_at FROM passkeys ORDER BY created_at DESC;"
+```
+
+Columns:
+
+- `credential_id`: Base64url WebAuthn credential ID. This is queryable and unique.
+- `user_id`: Owner user ID.
+- `public_key_der`: WebAuthn public key as DER-encoded SubjectPublicKeyInfo bytes. Usually omit it from casual queries.
+- `algorithm`: COSE algorithm ID: `-7` is ES256, `-257` is RS256, and `-8` is EdDSA.
+- `authenticator_id`: AAGUID from authenticator data when available. All zeroes means undefined.
+- `name`: User-facing passkey name.
+- `sign_count`: Latest WebAuthn signature counter stored by the server.
+- `created_at`: Unix milliseconds.
+
+## passkey_signin_attempts
+
+Short-lived WebAuthn sign-in challenges.
+
+```sh
+sqlite3 -header -column auth-node.sqlite "SELECT challenge_hash_hex, datetime(expires_at / 1000, 'unixepoch', 'localtime') AS expires_at FROM passkey_signin_attempts ORDER BY expires_at DESC;"
+```
+
+Columns:
+
+- `challenge_hash_hex`: SHA-256 hash of the random sign-in challenge.
+- `expires_at`: Unix milliseconds. Challenges expire after 5 minutes and are deleted after use.
+
 ## rate_limit_buckets
 
 Persistent token buckets for sign-in, email-code, and password-reset rate limits.
@@ -103,11 +131,13 @@ Columns:
 Quick table counts:
 
 ```sh
-sqlite3 -header -column auth-node.sqlite "SELECT 'users' AS table_name, count(*) AS rows FROM users UNION ALL SELECT 'sessions', count(*) FROM sessions UNION ALL SELECT 'email_verification_codes', count(*) FROM email_verification_codes UNION ALL SELECT 'password_reset_codes', count(*) FROM password_reset_codes UNION ALL SELECT 'rate_limit_buckets', count(*) FROM rate_limit_buckets;"
+sqlite3 -header -column auth-node.sqlite "SELECT 'users' AS table_name, count(*) AS rows FROM users UNION ALL SELECT 'sessions', count(*) FROM sessions UNION ALL SELECT 'email_verification_codes', count(*) FROM email_verification_codes UNION ALL SELECT 'password_reset_codes', count(*) FROM password_reset_codes UNION ALL SELECT 'passkeys', count(*) FROM passkeys UNION ALL SELECT 'passkey_signin_attempts', count(*) FROM passkey_signin_attempts UNION ALL SELECT 'rate_limit_buckets', count(*) FROM rate_limit_buckets;"
 ```
 
-Expired rows that cleanup can delete:
+Preview expired rows before cleanup:
+
+This query only counts expired rows. It does not delete anything.
 
 ```sh
-sqlite3 -header -column auth-node.sqlite "SELECT 'sessions' AS table_name, count(*) AS expired FROM sessions WHERE expires_at <= unixepoch('subsec') * 1000 UNION ALL SELECT 'email_verification_codes', count(*) FROM email_verification_codes WHERE expires_at <= unixepoch('subsec') * 1000 UNION ALL SELECT 'password_reset_codes', count(*) FROM password_reset_codes WHERE expires_at <= unixepoch('subsec') * 1000 UNION ALL SELECT 'rate_limit_buckets', count(*) FROM rate_limit_buckets WHERE expires_at <= unixepoch('subsec') * 1000;"
+sqlite3 -header -column auth-node.sqlite "SELECT 'sessions' AS table_name, count(*) AS expired FROM sessions WHERE expires_at <= unixepoch('subsec') * 1000 UNION ALL SELECT 'email_verification_codes', count(*) FROM email_verification_codes WHERE expires_at <= unixepoch('subsec') * 1000 UNION ALL SELECT 'password_reset_codes', count(*) FROM password_reset_codes WHERE expires_at <= unixepoch('subsec') * 1000 UNION ALL SELECT 'passkey_signin_attempts', count(*) FROM passkey_signin_attempts WHERE expires_at <= unixepoch('subsec') * 1000 UNION ALL SELECT 'rate_limit_buckets', count(*) FROM rate_limit_buckets WHERE expires_at <= unixepoch('subsec') * 1000;"
 ```

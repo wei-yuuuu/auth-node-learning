@@ -6,6 +6,10 @@ export function sha256(bufferOrString) {
   return crypto.hash("sha256", bufferOrString, "buffer");
 }
 
+export function sha256Hex(bufferOrString) {
+  return sha256(bufferOrString).toString("hex");
+}
+
 export function timingSafeEqualHex(leftHex, rightHex) {
   const left = Buffer.from(leftHex, "hex");
   const right = Buffer.from(rightHex, "hex");

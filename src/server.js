@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -6,10 +5,25 @@ import { fileURLToPath } from "node:url";
 import { EmailCodeService } from "./auth/email-code-service.js";
 import { hashPassword, validatePassword, verifyPassword } from "./auth/password-service.js";
 import { PasswordResetService } from "./auth/password-reset-service.js";
+import { randomBase64Url } from "./auth/random.js";
 import { RateLimiter } from "./auth/rate-limit.js";
 import { SessionService } from "./auth/session-service.js";
+import {
+  PASSKEY_CHALLENGE_TTL_MS,
+  PASSKEY_LIMIT,
+  WebAuthnError,
+  buildPasskeyAuthenticationOptions,
+  buildPasskeyCreationOptions,
+  createPasskeyChallenge,
+  getClientDataChallenge,
+  hashPasskeyChallenge,
+  validatePasskeyName,
+  validatePasskeyRegistration,
+  verifyPasskeyAuthentication
+} from "./auth/webauthn.js";
 import { parseCookies, serializeCookie } from "./http/cookies.js";
 import { readJson, sendJson } from "./http/json.js";
+import { requestOrigin } from "./http/origin.js";
 import { CSRF_COOKIE, validateUnsafeBrowserRequest } from "./http/request-guards.js";
 import { normalizeEmail, validateEmail } from "./store/email.js";
 import { SQLiteStore } from "./store/sqlite-store.js";
@@ -43,6 +57,7 @@ const AUTH_COOKIE = "auth_session";
 const PASSWORD_UPDATE_COOKIE = "password_update_session";
 const EMAIL_UPDATE_COOKIE = "email_update_session";
 const ACCOUNT_DELETE_COOKIE = "account_delete_session";
+const PASSKEY_MANAGE_COOKIE = "passkey_manage_session";
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
 
 const server = createServer(async (request, response) => {
@@ -86,6 +101,14 @@ const server = createServer(async (request, response) => {
       return handleSignin(request, response);
     }
 
+    if (request.method === "POST" && url.pathname === "/passkeys/signin/options") {
+      return handlePasskeySigninOptions(request, response);
+    }
+
+    if (request.method === "POST" && url.pathname === "/passkeys/signin") {
+      return handlePasskeySignin(request, response);
+    }
+
     if (request.method === "POST" && url.pathname === "/password/verify") {
       return withAuth(request, response, handlePasswordIdentityVerification);
     }
@@ -120,6 +143,22 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/account/delete") {
       return withAuth(request, response, handleAccountDeletion);
+    }
+
+    if (request.method === "POST" && url.pathname === "/passkeys/verify") {
+      return withAuth(request, response, handlePasskeyIdentityVerification);
+    }
+
+    if (request.method === "POST" && url.pathname === "/passkeys/register/options") {
+      return withAuth(request, response, handlePasskeyRegistrationOptions);
+    }
+
+    if (request.method === "POST" && url.pathname === "/passkeys/register") {
+      return withAuth(request, response, handlePasskeyRegistration);
+    }
+
+    if (request.method === "POST" && url.pathname === "/passkeys/delete") {
+      return withAuth(request, response, handlePasskeyDeletion);
     }
 
     if (request.method === "GET" && url.pathname === "/me") {
@@ -270,34 +309,84 @@ async function handleSignin(request, response) {
   return sendJson(response, 200, { user: publicUser(user) }, setAuthCookie(token));
 }
 
-async function handlePasswordIdentityVerification(request, response, authSession) {
-  const body = await readJson(request);
-  const user = await store.getUserById(authSession.userId);
+async function handlePasskeySigninOptions(request, response) {
+  const relyingParty = relyingPartyForRequest(request);
 
-  if (!(await passwordVerificationLimiter.consume(user.id))) {
-    return sendJson(response, 429, {
-      error: "Too many password verification attempts. Try again later."
-    });
+  if (!relyingParty) {
+    return sendJson(response, 400, { error: "Request host is required." });
   }
 
-  const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
+  const challenge = createPasskeyChallenge();
 
-  if (!validPassword) {
-    return sendJson(response, 400, { error: "Password is incorrect.", field: "password" });
-  }
-
-  const verificationToken = await sessions.createVerificationSession({
-    userId: user.id,
-    action: "password-update",
-    authSessionId: authSession.id
+  await store.insertPasskeySigninAttempt({
+    challengeHashHex: hashPasskeyChallenge(challenge),
+    expiresAt: Date.now() + PASSKEY_CHALLENGE_TTL_MS
   });
 
-  return sendJson(
-    response,
-    200,
-    { ok: true, message: "Identity verified for password update." },
-    setPasswordUpdateCookie(verificationToken)
-  );
+  return sendJson(response, 200, {
+    options: buildPasskeyAuthenticationOptions({
+      challenge,
+      rpId: relyingParty.id
+    })
+  });
+}
+
+async function handlePasskeySignin(request, response) {
+  const body = await readJson(request);
+  const relyingParty = relyingPartyForRequest(request);
+
+  if (!relyingParty) {
+    return sendJson(response, 400, { error: "Request host is required." });
+  }
+
+  try {
+    const challenge = getClientDataChallenge(body.credential);
+    const challengeHashHex = hashPasskeyChallenge(challenge);
+    const attempt = await store.getPasskeySigninAttempt(challengeHashHex);
+
+    await store.deletePasskeySigninAttempt(challengeHashHex);
+
+    if (!attempt || attempt.expiresAt <= Date.now()) {
+      return sendJson(response, 400, { error: "Passkey challenge expired." });
+    }
+
+    const passkey = await store.getPasskeyByCredentialId(body.credential?.rawId);
+
+    if (!passkey) {
+      return sendJson(response, 400, { error: "Passkey is not registered." });
+    }
+
+    const result = verifyPasskeyAuthentication({
+      credential: body.credential,
+      storedPasskey: passkey,
+      expectedChallenge: challenge,
+      expectedOrigin: relyingParty.origin,
+      expectedRpId: relyingParty.id
+    });
+
+    if (result.signCount > passkey.signCount) {
+      await store.updatePasskeySignCount(passkey.credentialId, result.signCount);
+    }
+
+    const token = await sessions.createAuthSession(passkey.userId);
+    const user = await store.getUserById(passkey.userId);
+
+    return sendJson(response, 200, { user: publicUser(user) }, setAuthCookie(token));
+  } catch (error) {
+    if (error instanceof WebAuthnError) {
+      return sendJson(response, 400, { error: error.message });
+    }
+
+    throw error;
+  }
+}
+
+async function handlePasswordIdentityVerification(request, response, authSession) {
+  return handlePasswordBasedVerification(request, response, authSession, {
+    action: "password-update",
+    message: "Identity verified for password update.",
+    setCookie: setPasswordUpdateCookie
+  });
 }
 
 async function handlePasswordUpdate(request, response, authSession) {
@@ -399,33 +488,11 @@ async function handlePasswordResetFinish(request, response) {
 }
 
 async function handleEmailUpdateIdentityVerification(request, response, authSession) {
-  const body = await readJson(request);
-  const user = await store.getUserById(authSession.userId);
-
-  if (!(await passwordVerificationLimiter.consume(user.id))) {
-    return sendJson(response, 429, {
-      error: "Too many password verification attempts. Try again later."
-    });
-  }
-
-  const validPassword = await verifyPassword(user.passwordHash, body.password ?? "");
-
-  if (!validPassword) {
-    return sendJson(response, 400, { error: "Password is incorrect.", field: "password" });
-  }
-
-  const verificationToken = await sessions.createVerificationSession({
-    userId: user.id,
+  return handlePasswordBasedVerification(request, response, authSession, {
     action: "email-update",
-    authSessionId: authSession.id
+    message: "Identity verified for email update.",
+    setCookie: setEmailUpdateCookie
   });
-
-  return sendJson(
-    response,
-    200,
-    { ok: true, message: "Identity verified for email update." },
-    setEmailUpdateCookie(verificationToken)
-  );
 }
 
 async function handleEmailUpdateStart(request, response, authSession) {
@@ -524,6 +591,27 @@ async function handleEmailUpdateFinish(request, response, authSession) {
 }
 
 async function handleAccountDeletionIdentityVerification(request, response, authSession) {
+  return handlePasswordBasedVerification(request, response, authSession, {
+    action: "account-delete",
+    message: "Identity verified for account deletion.",
+    setCookie: setAccountDeleteCookie
+  });
+}
+
+async function handlePasskeyIdentityVerification(request, response, authSession) {
+  return handlePasswordBasedVerification(request, response, authSession, {
+    action: "passkey-manage",
+    message: "Identity verified for passkey management.",
+    setCookie: setPasskeyManageCookie
+  });
+}
+
+async function handlePasswordBasedVerification(
+  request,
+  response,
+  authSession,
+  { action, message, setCookie }
+) {
   const body = await readJson(request);
   const user = await store.getUserById(authSession.userId);
 
@@ -541,15 +629,172 @@ async function handleAccountDeletionIdentityVerification(request, response, auth
 
   const verificationToken = await sessions.createVerificationSession({
     userId: user.id,
-    action: "account-delete",
+    action,
     authSessionId: authSession.id
   });
 
   return sendJson(
     response,
     200,
-    { ok: true, message: "Identity verified for account deletion." },
-    setAccountDeleteCookie(verificationToken)
+    { ok: true, message },
+    setCookie(verificationToken)
+  );
+}
+
+async function handlePasskeyRegistrationOptions(request, response, authSession) {
+  const user = await store.getUserById(authSession.userId);
+  const verificationSession = await validatePasskeyManageSession(request, authSession);
+  const relyingParty = relyingPartyForRequest(request);
+
+  if (!verificationSession) {
+    return sendJson(response, 401, { error: "Passkey management verification required." });
+  }
+
+  if (!relyingParty) {
+    return sendJson(response, 400, { error: "Request host is required." });
+  }
+
+  const existingPasskeys = await store.listPasskeysByUserId(user.id);
+
+  if (existingPasskeys.length >= PASSKEY_LIMIT) {
+    return sendJson(response, 400, {
+      error: `A user can register at most ${PASSKEY_LIMIT} passkeys.`
+    });
+  }
+
+  return sendJson(response, 200, {
+    options: buildPasskeyCreationOptions({
+      rpId: relyingParty.id,
+      user,
+      existingPasskeys
+    })
+  });
+}
+
+async function handlePasskeyRegistration(request, response, authSession) {
+  const body = await readJson(request);
+  const user = await store.getUserById(authSession.userId);
+  const cookies = parseCookies(request.headers.cookie);
+  const verificationToken = cookies.get(PASSKEY_MANAGE_COOKIE);
+  const passkeyName = body.name ?? "Passkey";
+  const nameError = validatePasskeyName(passkeyName);
+
+  if (nameError) {
+    return sendJson(response, 400, { error: nameError, field: "name" });
+  }
+
+  const existingPasskeyCount = await store.countPasskeysByUserId(user.id);
+
+  if (existingPasskeyCount >= PASSKEY_LIMIT) {
+    return sendJson(response, 400, {
+      error: `A user can register at most ${PASSKEY_LIMIT} passkeys.`
+    });
+  }
+
+  const verified = await sessions.consumeVerificationToken(verificationToken, {
+    action: "passkey-manage",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+
+  if (!verified) {
+    return sendJson(response, 401, { error: "Passkey management verification required." });
+  }
+
+  try {
+    const relyingParty = relyingPartyForRequest(request);
+
+    if (!relyingParty) {
+      return sendJson(
+        response,
+        400,
+        { error: "Request host is required." },
+        clearPasskeyManageCookie()
+      );
+    }
+
+    const registration = validatePasskeyRegistration({
+      credential: body.credential,
+      expectedOrigin: relyingParty.origin,
+      expectedRpId: relyingParty.id
+    });
+
+    await store.insertPasskey({
+      ...registration,
+      userId: user.id,
+      name: passkeyName,
+      createdAt: Date.now()
+    });
+
+    return sendJson(
+      response,
+      201,
+      {
+        ok: true,
+        message: "Passkey registered.",
+        passkeys: publicPasskeys(await store.listPasskeysByUserId(user.id))
+      },
+      clearPasskeyManageCookie()
+    );
+  } catch (error) {
+    if (error instanceof WebAuthnError) {
+      return sendJson(
+        response,
+        400,
+        { error: error.message },
+        clearPasskeyManageCookie()
+      );
+    }
+
+    if (error.message === "Passkey is already registered.") {
+      return sendJson(
+        response,
+        400,
+        { error: error.message },
+        clearPasskeyManageCookie()
+      );
+    }
+
+    throw error;
+  }
+}
+
+async function handlePasskeyDeletion(request, response, authSession) {
+  const body = await readJson(request);
+  const cookies = parseCookies(request.headers.cookie);
+  const verificationToken = cookies.get(PASSKEY_MANAGE_COOKIE);
+  const verified = await sessions.consumeVerificationToken(verificationToken, {
+    action: "passkey-manage",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+
+  if (!verified) {
+    return sendJson(response, 401, { error: "Passkey management verification required." });
+  }
+
+  const passkey = await store.getPasskeyByCredentialId(body.credentialId);
+
+  if (!passkey || passkey.userId !== authSession.userId) {
+    return sendJson(
+      response,
+      400,
+      { error: "Passkey is not registered.", field: "credentialId" },
+      clearPasskeyManageCookie()
+    );
+  }
+
+  await store.deletePasskeyByCredentialId(authSession.userId, passkey.credentialId);
+
+  return sendJson(
+    response,
+    200,
+    {
+      ok: true,
+      message: "Passkey deleted.",
+      passkeys: publicPasskeys(await store.listPasskeysByUserId(authSession.userId))
+    },
+    clearPasskeyManageCookie()
   );
 }
 
@@ -590,14 +835,20 @@ async function handleAccountDeletion(request, response, authSession) {
       clearAuthCookie(),
       clearPasswordUpdateCookie(),
       clearEmailUpdateCookie(),
-      clearAccountDeleteCookie()
+      clearAccountDeleteCookie(),
+      clearPasskeyManageCookie()
     )
   );
 }
 
 async function handleMe(_request, response, authSession) {
   const user = await store.getUserById(authSession.userId);
-  return sendJson(response, 200, { user: publicUser(user) });
+  const passkeys = await store.listPasskeysByUserId(authSession.userId);
+
+  return sendJson(response, 200, {
+    user: publicUser(user),
+    passkeys: publicPasskeys(passkeys)
+  });
 }
 
 async function handleSignout(_request, response, authSession) {
@@ -622,12 +873,32 @@ async function withAuth(request, response, handler) {
   return handler(request, response, authSession);
 }
 
+async function validatePasskeyManageSession(request, authSession) {
+  const cookies = parseCookies(request.headers.cookie);
+  const verificationToken = cookies.get(PASSKEY_MANAGE_COOKIE);
+
+  return sessions.validateVerificationToken(verificationToken, {
+    action: "passkey-manage",
+    userId: authSession.userId,
+    authSessionId: authSession.id
+  });
+}
+
 function publicUser(user) {
   return {
     id: user.id,
     email: user.email,
     emailVerified: user.emailVerified
   };
+}
+
+function publicPasskeys(passkeys) {
+  return passkeys.map((passkey) => ({
+    credentialId: passkey.credentialId,
+    name: passkey.name,
+    authenticatorId: passkey.authenticatorId,
+    createdAt: passkey.createdAt
+  }));
 }
 
 function setAuthCookie(token) {
@@ -690,6 +961,21 @@ function clearAccountDeleteCookie() {
   };
 }
 
+function setPasskeyManageCookie(token) {
+  return {
+    "set-cookie": serializeCookie(PASSKEY_MANAGE_COOKIE, token, {
+      maxAge: 60 * 10,
+      secure: process.env.NODE_ENV === "production"
+    })
+  };
+}
+
+function clearPasskeyManageCookie() {
+  return {
+    "set-cookie": serializeCookie(PASSKEY_MANAGE_COOKIE, "", { maxAge: 0 })
+  };
+}
+
 function setCookieHeaders(...headers) {
   return {
     "set-cookie": headers.flatMap((header) => header["set-cookie"])
@@ -697,7 +983,7 @@ function setCookieHeaders(...headers) {
 }
 
 function createCsrfToken() {
-  return randomBytes(32).toString("base64url");
+  return randomBase64Url(32);
 }
 
 function setCsrfCookie(token) {
@@ -706,6 +992,23 @@ function setCsrfCookie(token) {
       httpOnly: false,
       secure: process.env.NODE_ENV === "production"
     })
+  };
+}
+
+// In WebAuthn, the relying party is this website/auth server. For local
+// development at http://localhost:3000, the origin is "http://localhost:3000"
+// and the RP ID is "localhost". Passkeys are scoped to the RP ID, so a passkey
+// created for localhost cannot be used by another domain.
+function relyingPartyForRequest(request) {
+  const origin = requestOrigin(request);
+
+  if (origin === null) {
+    return null;
+  }
+
+  return {
+    origin,
+    id: new URL(origin).hostname
   };
 }
 

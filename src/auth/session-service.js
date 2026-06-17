@@ -1,4 +1,4 @@
-import { sha256, timingSafeEqualHex } from "./hash.js";
+import { sha256, sha256Hex, timingSafeEqualHex } from "./hash.js";
 import { randomSessionId, randomSessionSecret } from "./random.js";
 
 const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -120,7 +120,7 @@ export class SessionService {
       return null;
     }
 
-    const secretHashHex = sha256(parsed.secret).toString("hex");
+    const secretHashHex = sha256Hex(parsed.secret);
 
     if (!timingSafeEqualHex(secretHashHex, session.secretHashHex)) {
       return null;
@@ -141,7 +141,7 @@ export class SessionService {
         userId,
         action,
         authSessionId,
-        secretHashHex: sha256(secret).toString("hex"),
+        secretHashHex: sha256Hex(secret),
         createdAt: this.now(),
         expiresAt: this.now() + expiresInMs
       }

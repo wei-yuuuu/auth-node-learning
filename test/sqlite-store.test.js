@@ -88,7 +88,7 @@ test("SQLiteStore rejects duplicate users", async () => {
   );
 });
 
-test("SQLiteStore deletes expired sessions, email codes, and rate-limit buckets", async () => {
+test("SQLiteStore deletes expired auth records", async () => {
   const store = new SQLiteStore(":memory:");
 
   await store.insertSession({
@@ -117,6 +117,10 @@ test("SQLiteStore deletes expired sessions, email codes, and rate-limit buckets"
     updatedAt: 1,
     expiresAt: 10
   });
+  await store.insertPasskeySigninAttempt({
+    challengeHashHex: "challenge-hash",
+    expiresAt: 10
+  });
 
   const counts = await store.deleteExpiredRecords(11);
 
@@ -124,12 +128,55 @@ test("SQLiteStore deletes expired sessions, email codes, and rate-limit buckets"
     sessions: 1,
     emailVerificationCodes: 1,
     passwordResetCodes: 1,
-    rateLimitBuckets: 1
+    rateLimitBuckets: 1,
+    passkeySigninAttempts: 1
   });
   assert.equal(await store.getSession("expired-session"), null);
   assert.equal(await store.getEmailVerificationCode("expired-session", "demo@example.com"), null);
   assert.equal(await store.getPasswordResetCode("demo@example.com"), null);
   assert.equal(await store.getRateLimitBucket("signin", "demo@example.com"), null);
+  assert.equal(await store.getPasskeySigninAttempt("challenge-hash"), null);
+});
+
+test("SQLiteStore persists passkeys and sign-in attempts", async () => {
+  const store = new SQLiteStore(":memory:");
+  const user = await store.createUser({
+    email: "passkey@example.com",
+    passwordHash: "hash"
+  });
+
+  await store.insertPasskey({
+    credentialId: "credential-1",
+    userId: user.id,
+    publicKeyDer: Buffer.from("public-key"),
+    algorithm: -7,
+    authenticatorId: "00000000000000000000000000000000",
+    name: "MacBook Touch ID",
+    signCount: 1,
+    createdAt: 20
+  });
+
+  const passkey = await store.getPasskeyByCredentialId("credential-1");
+
+  assert.equal(passkey.userId, user.id);
+  assert.equal(passkey.name, "MacBook Touch ID");
+  assert.deepEqual(passkey.publicKeyDer, Buffer.from("public-key"));
+  assert.equal(await store.countPasskeysByUserId(user.id), 1);
+
+  await store.updatePasskeySignCount("credential-1", 2);
+  assert.equal((await store.getPasskeyByCredentialId("credential-1")).signCount, 2);
+
+  await store.insertPasskeySigninAttempt({
+    challengeHashHex: "challenge-hash",
+    expiresAt: 100
+  });
+  assert.equal(
+    (await store.getPasskeySigninAttempt("challenge-hash")).challengeHashHex,
+    "challenge-hash"
+  );
+
+  await store.deletePasskeySigninAttempt("challenge-hash");
+  assert.equal(await store.getPasskeySigninAttempt("challenge-hash"), null);
 });
 
 test("SQLiteStore can delete other auth sessions while keeping the current one", async () => {
@@ -210,6 +257,16 @@ test("SQLiteStore can delete a user and related auth state", async () => {
     updatedAt: 1,
     expiresAt: 100
   });
+  await store.insertPasskey({
+    credentialId: "credential-1",
+    userId: user.id,
+    publicKeyDer: Buffer.from("public-key"),
+    algorithm: -7,
+    authenticatorId: null,
+    name: "MacBook Touch ID",
+    signCount: 1,
+    createdAt: 10
+  });
 
   await store.deleteUser(user.id);
 
@@ -223,4 +280,5 @@ test("SQLiteStore can delete a user and related auth state", async () => {
   assert.equal(await store.getPasswordResetCode(user.email), null);
   assert.equal(await store.getRateLimitBucket("password-signin", user.email), null);
   assert.equal(await store.getRateLimitBucket("password-verification", user.id), null);
+  assert.equal(await store.getPasskeyByCredentialId("credential-1"), null);
 });

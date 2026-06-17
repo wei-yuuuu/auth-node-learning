@@ -11,11 +11,20 @@ const verifyForm = document.querySelector("#verify-form");
 const passwordChangeForm = document.querySelector("#password-change-form");
 const passwordResetStartForm = document.querySelector("#password-reset-start-form");
 const passwordResetFinishForm = document.querySelector("#password-reset-finish-form");
+const passkeySigninButton = document.querySelector("#passkey-signin-button");
+const passkeyVerifyForm = document.querySelector("#passkey-verify-form");
+const passkeyRegisterForm = document.querySelector("#passkey-register-form");
+const passkeyDeleteForm = document.querySelector("#passkey-delete-form");
+const passkeyList = document.querySelector("#passkey-list");
+const passkeySelect = document.querySelector("#passkey-select");
 const emailUpdateVerifyForm = document.querySelector("#email-update-verify-form");
 const emailUpdateStartForm = document.querySelector("#email-update-start-form");
 const emailUpdateFinishForm = document.querySelector("#email-update-finish-form");
 const accountDeleteVerifyForm = document.querySelector("#account-delete-verify-form");
 const accountDeleteForm = document.querySelector("#account-delete-form");
+
+let currentUser = null;
+let conditionalPasskeyStarted = false;
 
 signupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -114,6 +123,45 @@ passwordResetFinishForm.addEventListener("submit", async (event) => {
   passwordResetFinishForm.reset();
 });
 
+passkeySigninButton.addEventListener("click", async () => {
+  await signInWithPasskey(signinForm);
+});
+
+passkeyVerifyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const result = await postJson(
+    "/passkeys/verify",
+    formJson(passkeyVerifyForm),
+    { form: passkeyVerifyForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
+  passkeyVerifyForm.reset();
+});
+
+passkeyRegisterForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await registerPasskey(passkeyRegisterForm);
+});
+
+passkeyDeleteForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const result = await postJson(
+    "/passkeys/delete",
+    formJson(passkeyDeleteForm),
+    { form: passkeyDeleteForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
+  await refreshSession();
+});
+
 emailUpdateVerifyForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const result = await postJson(
@@ -209,6 +257,7 @@ document.querySelector("#signout-all-button").addEventListener("click", async ()
 });
 
 await refreshSession();
+startConditionalPasskeySignin();
 
 async function refreshSession() {
   const response = await fetch("/me", {
@@ -217,6 +266,135 @@ async function refreshSession() {
   const body = await response.json();
 
   render(response.ok ? body : { signedIn: false, ...body });
+}
+
+async function signInWithPasskey(form) {
+  if (!passkeysSupported()) {
+    renderClientError(form, "This browser does not support passkeys.");
+    return;
+  }
+
+  const optionsResult = await postJson("/passkeys/signin/options", {}, { form });
+
+  if (!optionsResult.ok) {
+    return;
+  }
+
+  let credential;
+
+  try {
+    credential = await navigator.credentials.get({
+      publicKey: publicKeyAuthenticationOptions(optionsResult.body.options)
+    });
+  } catch (error) {
+    renderClientError(form, webauthnErrorMessage(error, "sign-in"));
+    return;
+  }
+
+  const result = await postJson(
+    "/passkeys/signin",
+    { credential: assertionCredentialJson(credential) },
+    { form }
+  );
+
+  if (result.ok) {
+    await refreshSession();
+  }
+}
+
+async function registerPasskey(form) {
+  if (!passkeysSupported()) {
+    renderClientError(form, "This browser does not support passkeys.");
+    return;
+  }
+
+  const data = formJson(form);
+  const optionsResult = await postJson("/passkeys/register/options", {}, { form });
+
+  if (!optionsResult.ok) {
+    return;
+  }
+
+  let credential;
+
+  try {
+    credential = await navigator.credentials.create({
+      publicKey: publicKeyCreationOptions(optionsResult.body.options)
+    });
+  } catch (error) {
+    renderClientError(form, webauthnErrorMessage(error, "registration"));
+    return;
+  }
+
+  let credentialJson;
+
+  try {
+    credentialJson = attestationCredentialJson(credential);
+  } catch (error) {
+    renderClientError(form, error.message);
+    return;
+  }
+
+  const result = await postJson(
+    "/passkeys/register",
+    {
+      name: data.name,
+      credential: credentialJson
+    },
+    { form }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
+  form.reset();
+  await refreshSession();
+}
+
+async function startConditionalPasskeySignin() {
+  if (conditionalPasskeyStarted || currentUser || !passkeysSupported()) {
+    return;
+  }
+
+  const available = await PublicKeyCredential.isConditionalMediationAvailable?.();
+
+  if (!available) {
+    return;
+  }
+
+  conditionalPasskeyStarted = true;
+  const optionsResult = await postJson("/passkeys/signin/options", {});
+
+  if (!optionsResult.ok) {
+    return;
+  }
+
+  const controller = new AbortController();
+
+  window.setTimeout(() => controller.abort(), 1000 * 60 * 4);
+
+  try {
+    const credential = await navigator.credentials.get({
+      mediation: "conditional",
+      signal: controller.signal,
+      publicKey: publicKeyAuthenticationOptions(optionsResult.body.options)
+    });
+
+    if (!credential) {
+      return;
+    }
+
+    const result = await postJson("/passkeys/signin", {
+      credential: assertionCredentialJson(credential)
+    });
+
+    if (result.ok) {
+      await refreshSession();
+    }
+  } catch {
+    // Conditional mediation can remain pending or be canceled by the user.
+  }
 }
 
 async function postJson(path, body, { form = null, fieldAliases = {} } = {}) {
@@ -245,6 +423,133 @@ async function postJson(path, body, { form = null, fieldAliases = {} } = {}) {
   };
 }
 
+function publicKeyCreationOptions(options) {
+  return {
+    challenge: base64UrlToArrayBuffer(options.challenge),
+    rp: {
+      id: options.rpId,
+      name: "Auth Node Learning"
+    },
+    user: {
+      id: base64UrlToArrayBuffer(options.user.id),
+      name: options.user.name,
+      displayName: options.user.displayName
+    },
+    pubKeyCredParams: options.pubKeyCredParams,
+    excludeCredentials: options.excludeCredentials.map((credential) => ({
+      type: credential.type,
+      id: base64UrlToArrayBuffer(credential.id)
+    })),
+    authenticatorSelection: options.authenticatorSelection,
+    attestation: options.attestation,
+    extensions: options.extensions
+  };
+}
+
+function publicKeyAuthenticationOptions(options) {
+  return {
+    challenge: base64UrlToArrayBuffer(options.challenge),
+    rpId: options.rpId,
+    userVerification: options.userVerification
+  };
+}
+
+function attestationCredentialJson(credential) {
+  const response = credential.response;
+  // `getPublicKey()` lets this learning app send a DER SubjectPublicKeyInfo key
+  // to the server instead of parsing the COSE key map from authenticator data.
+  // `getPublicKeyAlgorithm()` still carries the COSE algorithm ID.
+  const publicKey = response.getPublicKey();
+  const authenticatorData = response.getAuthenticatorData();
+
+  if (!publicKey || !authenticatorData) {
+    throw new Error("This browser did not expose the passkey public key.");
+  }
+
+  return {
+    id: credential.id,
+    rawId: arrayBufferToBase64Url(credential.rawId),
+    type: credential.type,
+    response: {
+      clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+      authenticatorData: arrayBufferToBase64Url(authenticatorData),
+      publicKey: arrayBufferToBase64Url(publicKey),
+      publicKeyAlgorithm: response.getPublicKeyAlgorithm()
+    }
+  };
+}
+
+function assertionCredentialJson(credential) {
+  const response = credential.response;
+
+  return {
+    id: credential.id,
+    rawId: arrayBufferToBase64Url(credential.rawId),
+    type: credential.type,
+    response: {
+      authenticatorData: arrayBufferToBase64Url(response.authenticatorData),
+      clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+      signature: arrayBufferToBase64Url(response.signature),
+      userHandle: response.userHandle ? arrayBufferToBase64Url(response.userHandle) : null
+    }
+  };
+}
+
+// Browser equivalent of Node's Buffer.from(value, "base64url"). The WebAuthn
+// API needs ArrayBuffer values, but this file runs in the browser where Node's
+// Buffer global is not available.
+function base64UrlToArrayBuffer(value) {
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(base64 + padding);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes.buffer;
+}
+
+// Browser equivalent of Buffer.from(arrayBuffer).toString("base64url"). This
+// converts WebAuthn ArrayBuffer fields into JSON-safe strings for fetch().
+function arrayBufferToBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+}
+
+function passkeysSupported() {
+  return "PublicKeyCredential" in window && "credentials" in navigator;
+}
+
+function webauthnErrorMessage(error, action) {
+  // navigator.credentials.create/get rejects with DOMException names that are
+  // useful to distinguish in the UI: NotAllowedError usually means the user
+  // canceled or the operation timed out, while NotSupportedError means the
+  // authenticator cannot satisfy requirements such as algorithm or user
+  // verification support.
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError") {
+      return `Passkey ${action} was canceled or timed out.`;
+    }
+
+    if (error.name === "NotSupportedError") {
+      return `This authenticator cannot satisfy the passkey ${action} requirements.`;
+    }
+  }
+
+  return `Passkey ${action} failed.`;
+}
+
 function formJson(form) {
   const data = Object.fromEntries(new FormData(form));
 
@@ -270,6 +575,12 @@ function readCookie(name) {
 function render(value, { clearAccount = false, form = null, fieldAliases = {} } = {}) {
   if (clearAccount || value.signedIn === false || Object.hasOwn(value, "user")) {
     renderAccount(value.user);
+  }
+
+  if (clearAccount || value.signedIn === false) {
+    renderPasskeys([]);
+  } else if (Object.hasOwn(value, "passkeys")) {
+    renderPasskeys(value.passkeys);
   }
 
   clearFormFeedback(form);
@@ -303,6 +614,15 @@ function render(value, { clearAccount = false, form = null, fieldAliases = {} } 
   notice.textContent = text;
   notice.hidden = text === "";
   notice.dataset.tone = value.error ? "error" : "info";
+}
+
+function renderClientError(form, message) {
+  clearFormFeedback(form);
+  renderFormAlert(form, {
+    message,
+    tone: "error"
+  });
+  clearGlobalNotice();
 }
 
 function clearGlobalNotice() {
@@ -373,6 +693,8 @@ function renderFormAlert(form, { message, tone }) {
 }
 
 function renderAccount(user) {
+  currentUser = user ?? null;
+
   if (!user) {
     accountSummary.dataset.state = "signed-out";
     accountMenu.open = false;
@@ -398,6 +720,45 @@ function renderAccount(user) {
     "aria-label",
     user.emailVerified ? "Email verified" : "Email not verified"
   );
+}
+
+function renderPasskeys(passkeys) {
+  passkeyList.replaceChildren();
+  passkeySelect.replaceChildren();
+
+  if (passkeys.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "passkey-empty";
+    empty.textContent = "No passkeys registered.";
+    passkeyList.append(empty);
+    passkeySelect.disabled = true;
+    passkeyDeleteForm.querySelector("button").disabled = true;
+    return;
+  }
+
+  const list = document.createElement("ul");
+  list.className = "passkey-items";
+
+  for (const passkey of passkeys) {
+    const item = document.createElement("li");
+    const name = document.createElement("span");
+    const createdAt = document.createElement("time");
+    const option = document.createElement("option");
+
+    name.textContent = passkey.name;
+    createdAt.dateTime = new Date(passkey.createdAt).toISOString();
+    createdAt.textContent = new Date(passkey.createdAt).toLocaleString();
+    item.append(name, createdAt);
+    list.append(item);
+
+    option.value = passkey.credentialId;
+    option.textContent = passkey.name;
+    passkeySelect.append(option);
+  }
+
+  passkeyList.append(list);
+  passkeySelect.disabled = false;
+  passkeyDeleteForm.querySelector("button").disabled = false;
 }
 
 function statusText(value) {

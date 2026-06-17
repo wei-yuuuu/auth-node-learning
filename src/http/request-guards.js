@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { MIMEType } from "node:util";
 import { parseCookies } from "./cookies.js";
+import { requestOrigin, singleHeader } from "./origin.js";
 
 // Anti-CSRF tokens are still common, especially for HTML forms. This JSON API
 // combines Pilcrow's stricter origin checks, a non-simple content type, and a
@@ -114,18 +115,6 @@ function parseMimeType(header) {
   }
 }
 
-function requestOrigin(request) {
-  const host = singleHeader(request.headers.host);
-
-  if (host === null) {
-    return null;
-  }
-
-  const protocol = request.socket?.encrypted ? "https" : "http";
-
-  return `${protocol}://${host}`;
-}
-
 function sameToken(a, b) {
   const aBuffer = Buffer.from(a);
   const bBuffer = Buffer.from(b);
@@ -135,12 +124,4 @@ function sameToken(a, b) {
   }
 
   return timingSafeEqual(aBuffer, bBuffer);
-}
-
-function singleHeader(header) {
-  if (Array.isArray(header)) {
-    return header.at(0) ?? null;
-  }
-
-  return header ?? null;
 }
