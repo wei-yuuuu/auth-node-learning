@@ -344,10 +344,14 @@ function validatePasskeyPublicKey(publicKeyDer, algorithm) {
   const details = publicKey.asymmetricKeyDetails ?? {};
 
   if (algorithm === -7) {
+    // "-7 (ES256): ECDSA with SHA-256" and WebAuthn "requires the
+    // authenticator to use the P-256 curve." Node reports P-256 as `prime256v1`.
     if (publicKey.asymmetricKeyType !== "ec" || details.namedCurve !== "prime256v1") {
       throw new WebAuthnError("ES256 passkeys must use the P-256 curve.");
     }
   } else if (algorithm === -257) {
+    // "Ensure that the modulus N is a 2048-bit integer" and "the exponent e is
+    // 65537." Node exposes those as `modulusLength` and `publicExponent`.
     if (
       publicKey.asymmetricKeyType !== "rsa" ||
       details.modulusLength < 2048 ||
@@ -356,6 +360,8 @@ function validatePasskeyPublicKey(publicKeyDer, algorithm) {
       throw new WebAuthnError("RS256 passkeys must use an RSA key of at least 2048 bits.");
     }
   } else if (algorithm === -8 && publicKey.asymmetricKeyType !== "ed25519") {
+    // "-8 (EdDSA)" and WebAuthn "requires the authenticator to use the
+    // Ed25519 curve."
     throw new WebAuthnError("EdDSA passkeys must use Ed25519.");
   }
 
