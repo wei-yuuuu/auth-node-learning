@@ -142,6 +142,49 @@ Source: [Pilcrow's auth book](https://auth.pilcrowonpaper.com/).
   - Finishing deletion consumes that verification session before deleting the user.
   - Deletion clears sessions, email verification codes, password reset codes, and user/email keyed rate-limit buckets.
 
+### Email Code Sign-In
+
+- Reference: [Email code authentication](https://auth.pilcrowonpaper.com/email-code-authentication) and the [passwordless example source](https://github.com/pilcrowonpaper/passwordless-example.auth.pilcrowonpaper.com).
+- Implemented in: `src/auth/email-code-signin-service.js`, `src/auth/argon2.js`, `src/auth/session-service.js`, `src/store/sqlite-store.js`, `src/server.js`, and `public/assets/app.js`.
+- Flow:
+
+```mermaid
+sequenceDiagram
+  participant Client as Client UI
+  participant Server as Node server
+  participant DB as SQLite
+  participant Email as Development email sender
+
+  Client->>Server: Start email code sign-in with email
+  Server->>DB: Load user by email
+  alt User exists and request rate limit allows it
+    Server->>DB: Create sessions.kind=email-code-signin with hashed secret
+    Server->>Server: Generate 8-char 40-bit code and Argon2id hash it
+    Server->>DB: Insert email_code_signin_codes(session_id, code_hash)
+    Server->>Email: Send formatted code ABCD-EFGH
+    Server-->>Client: Set email_code_signin_session cookie
+    Client->>Server: Verify code
+    Server->>DB: Validate session secret and load code hash
+    Server->>DB: Consume per-user verification rate-limit token
+    Server->>Server: Argon2id verify submitted code
+    Server->>DB: Transaction: delete sign-in session/code, mark email verified, create sessions.kind=auth
+    Server-->>Client: Clear sign-in cookie and set auth_session cookie
+  else User is missing
+    Server-->>Client: Explicit no-account error
+  end
+```
+
+- Code choices:
+  - Each request creates a new short-lived sign-in session and a new code. No per-account concurrency cap is used, so one browser/device cannot block another from signing in.
+  - The code alphabet is `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`: uppercase letters/numbers without ambiguous `I`, `O`, `0`, or `1`.
+  - Eight characters from that 32-character alphabet provide 40 bits of entropy.
+  - Codes are formatted as `ABCD-EFGH` in development email output. Following the example frontend, the client/server normalize spaces and hyphens before verification.
+  - The code is stored only as an Argon2id hash. The native Node configuration follows the article's 16 MiB memory, 3 iterations, and parallelism 1 guidance.
+  - A sign-in session lasts at most one hour. Deleting or expiring the parent session cascades to its code hash.
+  - Verification uses a token bucket keyed by user ID: capacity 5, refill 1 attempt per minute.
+  - Completing the flow uses a SQLite transaction so the one-time code/session is removed before the new auth session is committed.
+  - The successful code is also proof that the user controls the email address, so the transaction sets `users.email_verified` to `1`.
+
 ### Passkeys And WebAuthn
 
 - Reference: [Passkeys](https://auth.pilcrowonpaper.com/passkeys), [WebAuthn](https://auth.pilcrowonpaper.com/webauthn), [Passkey registration](https://auth.pilcrowonpaper.com/passkey-registration), [Passkey authentication](https://auth.pilcrowonpaper.com/passkey-authentication), [WebAuthn authenticator data](https://auth.pilcrowonpaper.com/webauthn-authenticator-data), and [WebAuthn client data](https://auth.pilcrowonpaper.com/webauthn-client-data).
@@ -237,6 +280,7 @@ sequenceDiagram
 - Implemented tables based on the reference schema:
   - `passkeys` for user passkey records.
   - `passkey_signin_attempts` for short-lived WebAuthn sign-in challenges.
+  - `email_code_signin_codes` for Argon2id-hashed, session-bound email sign-in codes.
 - Implemented WebAuthn checks based on the reference implementation:
   - Require user presence and user verification.
   - Validate relying party ID hash.
@@ -246,7 +290,7 @@ sequenceDiagram
   - Check backup state and attested credential state according to registration versus authentication flow.
 - Browser UI:
   - Minimal HTML, CSS, and browser JavaScript.
-  - Password/email-code pages can call existing JSON actions.
+  - Password and email-code pages call JSON actions.
   - Passkey registration calls `navigator.credentials.create()`.
   - Passkey sign-in calls `navigator.credentials.get()`.
   - Auth session cookies stay `HttpOnly`.

@@ -52,6 +52,15 @@ test("SQLiteStore persists users, sessions, and email verification codes", async
     expiresAt: 4
   });
   assert.equal((await store.getPasswordResetCode("demo@example.com")).code, "87654321");
+
+  await store.insertEmailCodeSigninCode({
+    sessionId: "session-1",
+    codeHash: "argon2id-hash"
+  });
+  assert.equal(
+    (await store.getEmailCodeSigninCode("session-1")).codeHash,
+    "argon2id-hash"
+  );
 });
 
 test("SQLiteStore rejects duplicate email updates", async () => {
@@ -121,11 +130,25 @@ test("SQLiteStore deletes expired auth records", async () => {
     challengeHashHex: "challenge-hash",
     expiresAt: 10
   });
+  await store.insertSession({
+    id: "expired-email-code-session",
+    kind: "email-code-signin",
+    userId: "user-1",
+    action: null,
+    authSessionId: null,
+    secretHashHex: "email-code-secret-hash",
+    createdAt: 1,
+    expiresAt: 10
+  });
+  await store.insertEmailCodeSigninCode({
+    sessionId: "expired-email-code-session",
+    codeHash: "argon2id-hash"
+  });
 
   const counts = await store.deleteExpiredRecords(11);
 
   assert.deepEqual(counts, {
-    sessions: 1,
+    sessions: 2,
     emailVerificationCodes: 1,
     passwordResetCodes: 1,
     rateLimitBuckets: 1,
@@ -136,6 +159,7 @@ test("SQLiteStore deletes expired auth records", async () => {
   assert.equal(await store.getPasswordResetCode("demo@example.com"), null);
   assert.equal(await store.getRateLimitBucket("signin", "demo@example.com"), null);
   assert.equal(await store.getPasskeySigninAttempt("challenge-hash"), null);
+  assert.equal(await store.getEmailCodeSigninCode("expired-email-code-session"), null);
 });
 
 test("SQLiteStore persists passkeys and sign-in attempts", async () => {
@@ -177,6 +201,50 @@ test("SQLiteStore persists passkeys and sign-in attempts", async () => {
 
   await store.deletePasskeySigninAttempt("challenge-hash");
   assert.equal(await store.getPasskeySigninAttempt("challenge-hash"), null);
+});
+
+test("SQLiteStore completes an email-code sign-in atomically", async () => {
+  const store = new SQLiteStore(":memory:");
+  const user = await store.createUser({
+    email: "email-code@example.com",
+    passwordHash: "hash"
+  });
+
+  await store.insertSession({
+    id: "email-code-session",
+    kind: "email-code-signin",
+    userId: user.id,
+    action: null,
+    authSessionId: null,
+    secretHashHex: "signin-secret-hash",
+    createdAt: 1,
+    expiresAt: 100
+  });
+  await store.insertEmailCodeSigninCode({
+    sessionId: "email-code-session",
+    codeHash: "argon2id-hash"
+  });
+
+  const completed = await store.completeEmailCodeSigninSession({
+    signInSessionId: "email-code-session",
+    userId: user.id,
+    authSession: {
+      id: "auth-session",
+      kind: "auth",
+      userId: user.id,
+      action: null,
+      authSessionId: null,
+      secretHashHex: "auth-secret-hash",
+      createdAt: 2,
+      expiresAt: 200
+    }
+  });
+
+  assert.equal(completed, true);
+  assert.equal(await store.getSession("email-code-session"), null);
+  assert.equal(await store.getEmailCodeSigninCode("email-code-session"), null);
+  assert.equal((await store.getSession("auth-session")).kind, "auth");
+  assert.equal((await store.getUserById(user.id)).emailVerified, true);
 });
 
 test("SQLiteStore can delete other auth sessions while keeping the current one", async () => {
@@ -267,6 +335,20 @@ test("SQLiteStore can delete a user and related auth state", async () => {
     signCount: 1,
     createdAt: 10
   });
+  await store.insertSession({
+    id: "email-code-session",
+    kind: "email-code-signin",
+    userId: user.id,
+    action: null,
+    authSessionId: null,
+    secretHashHex: "email-code-secret-hash",
+    createdAt: 1,
+    expiresAt: 100
+  });
+  await store.insertEmailCodeSigninCode({
+    sessionId: "email-code-session",
+    codeHash: "argon2id-hash"
+  });
 
   await store.deleteUser(user.id);
 
@@ -281,4 +363,5 @@ test("SQLiteStore can delete a user and related auth state", async () => {
   assert.equal(await store.getRateLimitBucket("password-signin", user.email), null);
   assert.equal(await store.getRateLimitBucket("password-verification", user.id), null);
   assert.equal(await store.getPasskeyByCredentialId("credential-1"), null);
+  assert.equal(await store.getEmailCodeSigninCode("email-code-session"), null);
 });

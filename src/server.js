@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EmailCodeService } from "./auth/email-code-service.js";
+import { EmailCodeSigninService } from "./auth/email-code-signin-service.js";
 import { hashPassword, validatePassword, verifyPassword } from "./auth/password-service.js";
 import { PasswordResetService } from "./auth/password-reset-service.js";
 import { randomBase64Url } from "./auth/random.js";
@@ -36,10 +37,14 @@ const devEmailSender = {
   },
   async sendPasswordResetCode(email, code) {
     console.log(`[dev-email] Password reset code for ${email}: ${code}`);
+  },
+  async sendEmailCodeSigninCode(email, code) {
+    console.log(`[dev-email] Sign-in code for ${email}: ${code}`);
   }
 };
 const emailCodes = new EmailCodeService(store, devEmailSender);
 const passwordResets = new PasswordResetService(store, devEmailSender);
+const emailCodeSignin = new EmailCodeSigninService(store, sessions, devEmailSender);
 const passwordAttemptLimiter = new RateLimiter({
   name: "password-signin",
   capacity: 5,
@@ -58,6 +63,7 @@ const PASSWORD_UPDATE_COOKIE = "password_update_session";
 const EMAIL_UPDATE_COOKIE = "email_update_session";
 const ACCOUNT_DELETE_COOKIE = "account_delete_session";
 const PASSKEY_MANAGE_COOKIE = "passkey_manage_session";
+const EMAIL_CODE_SIGNIN_COOKIE = "email_code_signin_session";
 const publicDirectory = fileURLToPath(new URL("../public", import.meta.url));
 
 const server = createServer(async (request, response) => {
@@ -99,6 +105,14 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/signin") {
       return handleSignin(request, response);
+    }
+
+    if (request.method === "POST" && url.pathname === "/email-code-signin/start") {
+      return handleEmailCodeSigninStart(request, response);
+    }
+
+    if (request.method === "POST" && url.pathname === "/email-code-signin/verify") {
+      return handleEmailCodeSigninVerify(request, response);
     }
 
     if (request.method === "POST" && url.pathname === "/passkeys/signin/options") {
@@ -307,6 +321,61 @@ async function handleSignin(request, response) {
 
   const token = await sessions.createAuthSession(user.id);
   return sendJson(response, 200, { user: publicUser(user) }, setAuthCookie(token));
+}
+
+async function handleEmailCodeSigninStart(request, response) {
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const emailError = validateEmail(email);
+
+  if (emailError) {
+    return sendJson(response, 400, { error: emailError, field: "email" });
+  }
+
+  const user = await store.getUserByEmail(email);
+
+  if (!user) {
+    return sendJson(response, 400, {
+      error: "No account exists for this email address.",
+      field: "email"
+    });
+  }
+
+  const result = await emailCodeSignin.createSigninCode(user);
+
+  if (!result.ok) {
+    return sendJson(response, 429, { error: result.error });
+  }
+
+  return sendJson(
+    response,
+    200,
+    { ok: true, message: "A sign-in code was printed to stdout." },
+    setEmailCodeSigninCookie(result.token)
+  );
+}
+
+async function handleEmailCodeSigninVerify(request, response) {
+  const body = await readJson(request);
+  const cookies = parseCookies(request.headers.cookie);
+  const result = await emailCodeSignin.verifySigninCode(
+    cookies.get(EMAIL_CODE_SIGNIN_COOKIE),
+    body.code
+  );
+
+  if (!result.ok) {
+    const headers = result.clearSession ? clearEmailCodeSigninCookie() : {};
+    return sendJson(response, 400, { error: result.error, field: "code" }, headers);
+  }
+
+  const user = await store.getUserById(result.userId);
+
+  return sendJson(
+    response,
+    200,
+    { user: publicUser(user) },
+    setCookieHeaders(setAuthCookie(result.authToken), clearEmailCodeSigninCookie())
+  );
 }
 
 async function handlePasskeySigninOptions(request, response) {
@@ -973,6 +1042,21 @@ function setPasskeyManageCookie(token) {
 function clearPasskeyManageCookie() {
   return {
     "set-cookie": serializeCookie(PASSKEY_MANAGE_COOKIE, "", { maxAge: 0 })
+  };
+}
+
+function setEmailCodeSigninCookie(token) {
+  return {
+    "set-cookie": serializeCookie(EMAIL_CODE_SIGNIN_COOKIE, token, {
+      maxAge: 60 * 60,
+      secure: process.env.NODE_ENV === "production"
+    })
+  };
+}
+
+function clearEmailCodeSigninCookie() {
+  return {
+    "set-cookie": serializeCookie(EMAIL_CODE_SIGNIN_COOKIE, "", { maxAge: 0 })
   };
 }
 

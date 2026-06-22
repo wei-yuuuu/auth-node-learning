@@ -20,17 +20,18 @@ This repository is a chapter-by-chapter Node.js learning implementation inspired
 - Verification sessions as a reusable primitive for sensitive actions.
 - Password update after short-lived identity verification.
 - Password reset with an email code.
+- Passwordless email code sign-in with an 8-character, 40-bit code hashed by Argon2id.
 - Optional sign-out of other devices after password update.
 - Optional sign-out of all devices after password reset.
 - Email address update after identity verification and an email code sent to the new address.
 - Browser hardening for unsafe JSON requests with strict content-type and same-origin checks.
 - Account deletion after identity verification with related auth state cleanup.
 - Passkey registration, passkey sign-in, and passkey deletion with browser WebAuthn APIs.
-- Built-in `node:test` coverage for password hashing, sessions, rate limits, email-code TTL, WebAuthn validation, SQLite persistence, and random-code formatting.
+- Built-in `node:test` coverage for password/code hashing, sessions, rate limits, email-code TTL, WebAuthn validation, SQLite persistence, and random-code formatting.
 
 The API uses a local SQLite database by default while keeping the auth services small enough to inspect.
 
-The current code includes a small browser HTML UI for sign-up, sign-in, email verification, passkey registration/sign-in/deletion, email update, account deletion, and session controls.
+The current code includes a small browser HTML UI for sign-up, password/email-code/passkey sign-in, email verification, passkey registration/deletion, email update, account deletion, and session controls.
 
 ## Requirements
 
@@ -119,6 +120,30 @@ Check the current session with the cookie returned by sign-up or sign-in:
 ```sh
 curl -i http://localhost:3000/me \
   -b /tmp/auth-node-cookies.txt
+```
+
+Start passwordless email code sign-in. The development sender prints an 8-character code as `ABCD-EFGH`; the browser and API normalize spaces/hyphens, so `ABCD-EFGH` and `ABCDEFGH` both work.
+
+```sh
+curl -i -X POST http://localhost:3000/email-code-signin/start \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
+  -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
+  -d '{"email":"demo@example.com"}'
+```
+
+Verify the code. The `email_code_signin_session` cookie binds the code to this browser/device and is replaced by an `auth_session` cookie on success.
+
+```sh
+curl -i -X POST http://localhost:3000/email-code-signin/verify \
+  -b /tmp/auth-node-cookies.txt \
+  -c /tmp/auth-node-cookies.txt \
+  -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
+  -H "x-csrf-token: $CSRF_TOKEN" \
+  -d '{"code":"ABCDEFGH"}'
 ```
 
 Verify identity before updating the password:
@@ -263,10 +288,7 @@ Implemented scope:
 - Passkey registration.
 - Passkey sign-in.
 - Passkey deletion behind identity verification.
+- Email code sign-in with session-bound, Argon2id-hashed codes.
 - WebAuthn challenge storage and cleanup.
-- SQLite tables for passkeys and passkey sign-in attempts.
+- SQLite tables for passkeys, WebAuthn attempts, and email code sign-in codes.
 - Browser HTML pages that call the WebAuthn APIs and existing JSON actions.
-
-Planned later:
-
-- Email code sign-in as an additional passwordless sign-in path.

@@ -4,6 +4,7 @@ import { randomSessionId, randomSessionSecret } from "./random.js";
 const AUTH_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const AUTH_SESSION_REFRESH_INTERVAL_MS = 1000 * 60 * 60;
 const VERIFICATION_SESSION_TTL_MS = 1000 * 60 * 10;
+const EMAIL_CODE_SIGNIN_SESSION_TTL_MS = 1000 * 60 * 60;
 
 export class SessionService {
   constructor(store, { now = () => Date.now() } = {}) {
@@ -34,6 +35,21 @@ export class SessionService {
 
     await this.store.insertSession(session.record);
     return session.token;
+  }
+
+  async createEmailCodeSigninSession(userId) {
+    const session = this.#buildSession({
+      kind: "email-code-signin",
+      userId,
+      action: null,
+      expiresInMs: EMAIL_CODE_SIGNIN_SESSION_TTL_MS
+    });
+
+    await this.store.insertSession(session.record);
+    return {
+      id: session.record.id,
+      token: session.token
+    };
   }
 
   async validateAuthToken(token) {
@@ -93,6 +109,27 @@ export class SessionService {
     }
 
     return session;
+  }
+
+  async validateEmailCodeSigninToken(token) {
+    const validation = await this.#validateToken(token, "email-code-signin");
+    return validation?.session ?? null;
+  }
+
+  async completeEmailCodeSigninSession(signInSession) {
+    const authSession = this.#buildSession({
+      kind: "auth",
+      userId: signInSession.userId,
+      action: null,
+      expiresInMs: AUTH_SESSION_TTL_MS
+    });
+    const completed = await this.store.completeEmailCodeSigninSession({
+      signInSessionId: signInSession.id,
+      userId: signInSession.userId,
+      authSession: authSession.record
+    });
+
+    return completed ? authSession.token : null;
   }
 
   async invalidateSession(sessionId) {

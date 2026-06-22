@@ -100,6 +100,26 @@
       </section>
 
       <section class="flow flow-two">
+        <form id="email-code-signin-start-form" class="step">
+          <h2><span>1</span>Start email code sign-in</h2>
+          <label>
+            Email
+            <input name="email" type="email" autocomplete="email" required>
+          </label>
+          <button class="secondary" type="submit">Send sign-in code</button>
+        </form>
+
+        <form id="email-code-signin-verify-form" class="step">
+          <h2><span>2</span>Verify sign-in code</h2>
+          <label>
+            Sign-in code
+            <input class="code-input" name="code" autocomplete="one-time-code" autocapitalize="characters" inputmode="text" pattern="[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}" maxlength="9" placeholder="ABCD-EFGH" required>
+          </label>
+          <button class="primary" type="submit">Sign in with code</button>
+        </form>
+      </section>
+
+      <section class="flow flow-two">
         <form id="password-reset-start-form" class="step">
           <h2><span>1</span>Start password reset</h2>
           <label>

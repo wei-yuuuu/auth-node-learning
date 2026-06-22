@@ -176,6 +176,41 @@ export class SQLiteStore {
     this.deletePasswordResetCodeStatement.run(normalizeEmail(email));
   }
 
+  async insertEmailCodeSigninCode(record) {
+    this.insertEmailCodeSigninCodeStatement.run({
+      session_id: record.sessionId,
+      code_hash: record.codeHash
+    });
+  }
+
+  async getEmailCodeSigninCode(sessionId) {
+    return rowToEmailCodeSigninCode(this.getEmailCodeSigninCodeStatement.get(sessionId));
+  }
+
+  async completeEmailCodeSigninSession({ signInSessionId, userId, authSession }) {
+    this.database.exec("BEGIN IMMEDIATE");
+
+    try {
+      const deleted = this.deleteEmailCodeSigninSessionStatement.run({
+        id: signInSessionId,
+        user_id: userId
+      }).changes;
+
+      if (deleted !== 1) {
+        this.database.exec("ROLLBACK");
+        return false;
+      }
+
+      this.markEmailVerifiedStatement.run(userId);
+      this.insertSessionStatement.run(authSession);
+      this.database.exec("COMMIT");
+      return true;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async insertPasskey(record) {
     try {
       this.insertPasskeyStatement.run({
@@ -314,6 +349,12 @@ export class SQLiteStore {
         expires_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS email_code_signin_codes (
+        session_id TEXT PRIMARY KEY,
+        code_hash TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS passkeys (
         credential_id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -432,6 +473,17 @@ export class SQLiteStore {
     this.deletePasswordResetCodeStatement = this.database.prepare(
       "DELETE FROM password_reset_codes WHERE email = ?"
     );
+    this.insertEmailCodeSigninCodeStatement = this.database.prepare(`
+      INSERT INTO email_code_signin_codes (session_id, code_hash)
+      VALUES (:session_id, :code_hash)
+    `);
+    this.getEmailCodeSigninCodeStatement = this.database.prepare(
+      "SELECT * FROM email_code_signin_codes WHERE session_id = ?"
+    );
+    this.deleteEmailCodeSigninSessionStatement = this.database.prepare(`
+      DELETE FROM sessions
+      WHERE id = :id AND user_id = :user_id AND kind = 'email-code-signin'
+    `);
     this.insertPasskeyStatement = this.database.prepare(`
       INSERT INTO passkeys (
         credential_id,
@@ -573,6 +625,17 @@ function rowToPasswordResetCode(row) {
     email: row.email,
     code: row.code,
     expiresAt: row.expires_at
+  };
+}
+
+function rowToEmailCodeSigninCode(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    sessionId: row.session_id,
+    codeHash: row.code_hash
   };
 }
 

@@ -108,10 +108,15 @@ Browser UI:
 - Use `navigator.credentials.get()` for passkey sign-in.
 - Keep cookies `HttpOnly`; browser JavaScript should not read auth session tokens.
 
-## [ ] Chapter 8: Email Code Sign-In
+## [x] Chapter 8: Email Code Sign-In
 
 - Add email code sign-in as another passwordless path.
-- Create a short-lived sign-in session for each email-code attempt.
-- Generate an 8-character code with at least 40 bits of entropy.
-- Hash the email sign-in code with Argon2id or bcrypt before storing it.
-- Rate-limit verification at 1 attempt per minute per user with a small burst capacity.
+- Create an `email-code-signin` session for every attempt. The session is bound to the initiating browser by an `HttpOnly` cookie and expires after one hour.
+- Generate an 8-character code from a 32-character alphabet: 40 bits of entropy.
+- Hash the email sign-in code with native Node Argon2id using the article's 16 MiB, 3-pass, parallelism-1 configuration.
+- Store the code hash in `email_code_signin_codes`, linked to the session with `ON DELETE CASCADE`.
+- Do not limit concurrent sign-in attempts or codes per account; each start request creates a new session and code.
+- Rate-limit code verification per user with a capacity of 5 and a refill rate of 1 attempt per minute.
+- Rate-limit code requests separately to protect the development/production email sender.
+- On a correct code, atomically delete the sign-in session/code, mark the email verified, and create an auth session.
+- Add a browser two-step flow: start with email, then submit the code without resending the email address.

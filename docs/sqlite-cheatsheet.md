@@ -41,7 +41,7 @@ sqlite3 -header -column auth-node.sqlite "SELECT id, kind, user_id, action, auth
 Columns:
 
 - `id`: Public session ID from the `id.secret` token.
-- `kind`: `auth` for signed-in sessions, `verification` for short-lived identity verification sessions.
+- `kind`: `auth` for signed-in sessions, `verification` for short-lived identity verification sessions, or `email-code-signin` for an in-progress passwordless sign-in.
 - `user_id`: Owner user ID.
 - `action`: Purpose name for verification sessions, such as `password-update`, `email-update`, `account-delete`, or `passkey-manage`.
 - `auth_session_id`: Auth session that a verification session is tied to.
@@ -77,6 +77,20 @@ Columns:
 - `email`: Account email address.
 - `code`: 8-digit numeric reset code printed by the development email sender.
 - `expires_at`: Unix milliseconds.
+
+## email_code_signin_codes
+
+Argon2id-hashed codes bound to short-lived `email-code-signin` sessions.
+
+```sh
+sqlite3 -header -column auth-node.sqlite "SELECT c.session_id, s.user_id, u.email, substr(c.code_hash, 1, 46) AS code_hash_prefix, datetime(s.created_at / 1000, 'unixepoch', 'localtime') AS created_at, datetime(s.expires_at / 1000, 'unixepoch', 'localtime') AS expires_at FROM email_code_signin_codes c JOIN sessions s ON s.id = c.session_id JOIN users u ON u.id = s.user_id ORDER BY s.created_at DESC;"
+```
+
+Columns:
+
+- `session_id`: Parent `sessions` row with `kind = 'email-code-signin'`.
+- `code_hash`: Native Node Argon2id hash of the 8-character sign-in code. The raw code is never stored.
+- The expiration belongs to `sessions.expires_at`; deleting or expiring that session deletes this row through `ON DELETE CASCADE`.
 
 ## passkeys
 
@@ -120,7 +134,7 @@ sqlite3 -header -column auth-node.sqlite "SELECT name, key, tokens, datetime(upd
 
 Columns:
 
-- `name`: Rate limiter name, such as `password-signin`, `password-verification`, `email-code`, `password-reset-request`, or `password-reset-verify`.
+- `name`: Rate limiter name, such as `password-signin`, `password-verification`, `email-code`, `password-reset-request`, `email-code-signin-request`, or `email-code-signin-verify`.
 - `key`: Rate limit key, usually a validated email address or user ID.
 - `tokens`: Remaining bucket tokens.
 - `updated_at`: Unix milliseconds when the bucket was last refilled/consumed.
@@ -131,7 +145,7 @@ Columns:
 Quick table counts:
 
 ```sh
-sqlite3 -header -column auth-node.sqlite "SELECT 'users' AS table_name, count(*) AS rows FROM users UNION ALL SELECT 'sessions', count(*) FROM sessions UNION ALL SELECT 'email_verification_codes', count(*) FROM email_verification_codes UNION ALL SELECT 'password_reset_codes', count(*) FROM password_reset_codes UNION ALL SELECT 'passkeys', count(*) FROM passkeys UNION ALL SELECT 'passkey_signin_attempts', count(*) FROM passkey_signin_attempts UNION ALL SELECT 'rate_limit_buckets', count(*) FROM rate_limit_buckets;"
+sqlite3 -header -column auth-node.sqlite "SELECT 'users' AS table_name, count(*) AS rows FROM users UNION ALL SELECT 'sessions', count(*) FROM sessions UNION ALL SELECT 'email_verification_codes', count(*) FROM email_verification_codes UNION ALL SELECT 'password_reset_codes', count(*) FROM password_reset_codes UNION ALL SELECT 'email_code_signin_codes', count(*) FROM email_code_signin_codes UNION ALL SELECT 'passkeys', count(*) FROM passkeys UNION ALL SELECT 'passkey_signin_attempts', count(*) FROM passkey_signin_attempts UNION ALL SELECT 'rate_limit_buckets', count(*) FROM rate_limit_buckets;"
 ```
 
 Preview expired rows before cleanup:

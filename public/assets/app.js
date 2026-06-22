@@ -8,6 +8,9 @@ const notice = document.querySelector("#notice");
 const signupForm = document.querySelector("#signup-form");
 const signinForm = document.querySelector("#signin-form");
 const verifyForm = document.querySelector("#verify-form");
+const emailCodeSigninStartForm = document.querySelector("#email-code-signin-start-form");
+const emailCodeSigninVerifyForm = document.querySelector("#email-code-signin-verify-form");
+const emailCodeSigninInput = emailCodeSigninVerifyForm.elements.code;
 const passwordChangeForm = document.querySelector("#password-change-form");
 const passwordResetStartForm = document.querySelector("#password-reset-start-form");
 const passwordResetFinishForm = document.querySelector("#password-reset-finish-form");
@@ -60,6 +63,48 @@ verifyForm.addEventListener("submit", async (event) => {
 
   verifyForm.reset();
   await refreshSession();
+});
+
+emailCodeSigninStartForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const result = await postJson(
+    "/email-code-signin/start",
+    formJson(emailCodeSigninStartForm),
+    { form: emailCodeSigninStartForm }
+  );
+
+  if (result.ok) {
+    emailCodeSigninStartForm.reset();
+  }
+});
+
+emailCodeSigninVerifyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = formJson(emailCodeSigninVerifyForm);
+  const result = await postJson(
+    "/email-code-signin/verify",
+    { code: data.code.toUpperCase() },
+    { form: emailCodeSigninVerifyForm }
+  );
+
+  if (!result.ok) {
+    return;
+  }
+
+  emailCodeSigninVerifyForm.reset();
+  await refreshSession();
+});
+
+emailCodeSigninInput.addEventListener("input", () => {
+  const rawCode = emailCodeSigninInput.value
+    .replaceAll(" ", "")
+    .replaceAll("-", "")
+    .toUpperCase()
+    .slice(0, 8);
+
+  emailCodeSigninInput.value = rawCode.length > 4
+    ? `${rawCode.slice(0, 4)}-${rawCode.slice(4)}`
+    : rawCode;
 });
 
 passwordChangeForm.addEventListener("submit", async (event) => {

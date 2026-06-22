@@ -391,6 +391,11 @@ select {
   background: #fff;
 }
 
+.code-input {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 input[aria-invalid="true"] {
   border-color: var(--danger);
   outline-color: var(--danger);
